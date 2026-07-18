@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 
 export const connectDB = async (): Promise<void> => {
-  console.log('DEBUG - MONGO_URL value:', process.env.MONGO_URL);
+  console.log('ALL ENV KEYS:', Object.keys(process.env).join(', '));
   try {
     const uri = process.env.MONGO_URL;
     if (!uri) {
