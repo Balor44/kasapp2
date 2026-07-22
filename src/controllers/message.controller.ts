@@ -25,7 +25,12 @@ export const handleWebhook = async (req: Request, res: Response): Promise<void> 
 };
 
 export const verifyWebhook = (req: Request, res: Response): void => {
-  const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'kasapp-verify-token';
+  console.log('mode:', req.query['hub.mode']);
+  console.log('token:', req.query['hub.verify_token']);
+  console.log('expected:', process.env.WHATSAPP_VERIFY_TOKEN);
+
+  const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'kasapp2-verify-token';
+
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
@@ -35,4 +40,5 @@ export const verifyWebhook = (req: Request, res: Response): void => {
   } else {
     res.sendStatus(403);
   }
+};
 };
