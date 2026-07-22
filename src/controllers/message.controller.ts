@@ -41,4 +41,3 @@ export const verifyWebhook = (req: Request, res: Response): void => {
     res.sendStatus(403);
   }
 };
-};
