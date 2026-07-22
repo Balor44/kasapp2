@@ -1,10 +1,13 @@
 import mongoose from 'mongoose';
 
-const RAILWAY_MONGO = 'mongodb://mongo:AqpFCSsGPODuohggQRGHjFiTwkJPnqRx@mongodb.railway.internal:27017/kasapp2?authSource=admin';
-
 export const connectDB = async (): Promise<void> => {
   try {
-    const uri = process.env.MONGO_URL || RAILWAY_MONGO;
+    const uri = process.env.MONGODB_URI;
+
+    if (!uri) {
+      throw new Error('MONGO_URL environment variable is not set');
+    }
+
     await mongoose.connect(uri);
     console.log('MongoDB connected to:', uri.split('@')[1]);
   } catch (error) {

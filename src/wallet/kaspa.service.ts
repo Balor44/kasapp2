@@ -6,7 +6,7 @@ const NETWORK = kaspaWasm.NetworkType.Testnet;
 const KASPA_REST_API = 'https://api.kaspa.org';
 
 // Kaspa's registered SLIP-44 derivation path (account 0, receive index 0)
-const DERIVATION_PATH = "44'/111111'/0'/0/0";
+const DERIVATION_PATH = "m/44'/111111'/0'/0/0";
 
 export const KaspaService = {
 
