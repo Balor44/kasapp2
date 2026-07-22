@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
- "scripts": {
-  "dev": "nodemon --exec ts-node src/server.ts",
-  "build": "npx tsc && vite build",
-  "build:client": "vite build",
-  "start": "node dist/server.js"
+  "scripts": {
+    "dev": "nodemon --exec ts-node src/server.ts",
+    "build": "npx tsc && vite build",
+    "build:client": "vite build",
+    "start": "node dist/server.js"
   },
   "repository": {
     "type": "git",
@@ -22,9 +22,12 @@
   },
   "homepage": "https://github.com/Balor44/kasapp2#readme",
   "dependencies": {
+    "axios": "^1.18.1",
+    "bip39": "^3.1.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "kaspa-wasm": "^0.13.0",
     "mongoose": "^9.7.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
