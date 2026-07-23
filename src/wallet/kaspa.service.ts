@@ -25,7 +25,7 @@ export const KaspaService = {
 
   getBalance: async (address: string): Promise<number> => {
     try {
-      const res = await fetch('${KASPA_REST_API}' + '/addresses/' + address + '/balance');
+      const res = await fetch(KASPA_REST_API + '/addresses/' + address + '/balance');
       if (!res.ok) return 0;
       const data = await res.json();
       // 1 KAS = 100,000,000 sompi
