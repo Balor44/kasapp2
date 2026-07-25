@@ -18,7 +18,14 @@ export const createWallet = async (req: Request, res: Response): Promise<void> =
         balance: 0,
     });
 
-    res.status(201).json({ phone: user.phone, wallet: publicKey, balance: 0 });
+    res.status(201).json({ 
+        success: true,
+        data: {
+        phone: user.phone, 
+        wallet: publicKey, 
+        balance: "0 KAS",
+        }, 
+    });
   } catch (error: any) {
     console.error(error);
     res.status(500).json({ error: error.message || 'Server error' });

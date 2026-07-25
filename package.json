@@ -27,7 +27,8 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "kaspa-wasm": "^0.13.0",
+    "isomorphic-ws": "^5.0.0",
+    "kaspa-wasm": "file:rusty-kaspa/wasm/nodejs/kaspa",
     "mongoose": "^9.7.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
