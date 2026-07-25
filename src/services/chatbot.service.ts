@@ -19,9 +19,9 @@ export const ChatbotService = {
         mnemonic:secret, 
         balance: 0, 
     });
-      return 'Welcome to Kasapp!\nYour wallet is ready.\nAddress: ' + publicKey.slice(0, 24) + '...\nType /balance or /help to get started.';
-    }
-
+      return 'Welcome to Kasapp!\nYour wallet is ready.\n\nAddress:\n' + publicKey + '\n\nYOUR RECOVERY PHRASE (save this now, it will not be shown again):\n' + secret + '\n\nAnyone with this phrase can access your funds. Store it somewhere private and offline. Type /balance or /help to get started.';
+  }
+  
     if (msg === '/balance') {
       if (!user) return 'No wallet found. Say Hi to create one.';
       const balance = await KaspaService.getBalance(user.wallet);
