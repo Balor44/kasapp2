@@ -79,6 +79,7 @@ amount: BigInt(Math.round(amount * 100000000)),
 ],
 changeAddress: senderAddress,
 priorityFee: BigInt(0),
+networkId: NETWORK,
 });
 
 let txid = "";

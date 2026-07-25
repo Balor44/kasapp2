@@ -89,6 +89,7 @@ exports.KaspaService = {
                 ],
                 changeAddress: senderAddress,
                 priorityFee: BigInt(0),
+                networkId: NETWORK,
             });
             let txid = "";
             while (true) {
