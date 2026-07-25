@@ -22,7 +22,14 @@ const createWallet = async (req, res) => {
             mnemonic: secret,
             balance: 0,
         });
-        res.status(201).json({ phone: user.phone, wallet: publicKey, balance: 0 });
+        res.status(201).json({
+            success: true,
+            data: {
+                phone: user.phone,
+                wallet: publicKey,
+                balance: "0 KAS",
+            },
+        });
     }
     catch (error) {
         console.error(error);
