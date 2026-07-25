@@ -85,17 +85,15 @@ networkId: NETWORK,
 let txid = "";
 
 while (true) {
-const pending = await generator.next();
-if (!pending) break;
+  const pending = await generator.next();
+  if (!pending) break;
 
-const signedTx = kaspa.signTransaction(
-pending.transaction,
-[privateKey],
-true
-);
+  const utxoEntries = pending.getUtxoEntries();
+  for (let i = 0; i < utxoEntries.length; i++) {
+    pending.signInput(i, privateKey);
+  }
 
-pending.transaction = signedTx;
-txid = await pending.submit(rpc);
+  txid = await pending.submit(rpc);
 }
 
 return txid;

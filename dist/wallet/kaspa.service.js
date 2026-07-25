@@ -96,8 +96,10 @@ exports.KaspaService = {
                 const pending = await generator.next();
                 if (!pending)
                     break;
-                const signedTx = kaspa.signTransaction(pending.transaction, [privateKey], true);
-                pending.transaction = signedTx;
+                const utxoEntries = pending.getUtxoEntries();
+                for (let i = 0; i < utxoEntries.length; i++) {
+                    pending.signInput(i, privateKey);
+                }
                 txid = await pending.submit(rpc);
             }
             return txid;
