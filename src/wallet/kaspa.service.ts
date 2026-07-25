@@ -6,7 +6,7 @@ import WebSocket from "isomorphic-ws";
 
 import * as kaspa from "kaspa-wasm";
 
-const NETWORK = new kaspa.NetworkId("testnet-10");
+const NETWORK = "testnet-10";
 const DERIVATION_PATH = "m/44'/111111'/0'/0/0";
 
 export const KaspaService = {
@@ -26,9 +26,9 @@ let rpc: any;
 try {
 const resolver = new kaspa.Resolver();
 rpc = await resolver.connect({
-networkId: NETWORK,
-encoding: kaspa.Encoding.Borsh,
-});
+network_id: NETWORK,
+encoding: "borsh",
+} as any);
 
 const { entries } = await rpc.getUtxosByAddresses({ addresses: [address] });
 
@@ -56,9 +56,9 @@ const privateKey = derivePrivateKey(fromMnemonic);
 
 const resolver = new kaspa.Resolver();
 const rpc = await resolver.connect({
-networkId: NETWORK,
-encoding: kaspa.Encoding.Borsh,
-});
+    network_id: NETWORK,
+    encoding: "borsh",
+} as any);
 
 try {
 const { entries } = await rpc.getUtxosByAddresses({

@@ -32,7 +32,7 @@ const bip39 = __importStar(require("bip39"));
 const isomorphic_ws_1 = __importDefault(require("isomorphic-ws"));
 globalThis.WebSocket = isomorphic_ws_1.default;
 const kaspa = __importStar(require("kaspa-wasm"));
-const NETWORK = new kaspa.NetworkId("testnet-10");
+const NETWORK = "testnet-10";
 const DERIVATION_PATH = "m/44'/111111'/0'/0/0";
 exports.KaspaService = {
     generateWallet: async () => {
@@ -48,8 +48,8 @@ exports.KaspaService = {
         try {
             const resolver = new kaspa.Resolver();
             rpc = await resolver.connect({
-                networkId: NETWORK,
-                encoding: kaspa.Encoding.Borsh,
+                network_id: NETWORK,
+                encoding: "borsh",
             });
             const { entries } = await rpc.getUtxosByAddresses({ addresses: [address] });
             const totalSompi = entries.reduce((sum, utxo) => sum + BigInt(utxo.amount), BigInt(0));
@@ -69,8 +69,8 @@ exports.KaspaService = {
         const privateKey = derivePrivateKey(fromMnemonic);
         const resolver = new kaspa.Resolver();
         const rpc = await resolver.connect({
-            networkId: NETWORK,
-            encoding: kaspa.Encoding.Borsh,
+            network_id: NETWORK,
+            encoding: "borsh",
         });
         try {
             const { entries } = await rpc.getUtxosByAddresses({
