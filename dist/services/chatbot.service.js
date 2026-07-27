@@ -4,6 +4,8 @@ exports.ChatbotService = void 0;
 const User_1 = require("../models/User");
 const RechargeCard_1 = require("../models/RechargeCard");
 const kaspa_service_1 = require("../wallet/kaspa.service");
+const billpay_service_1 = require("./billpay.service");
+const price_1 = require("../utils/price");
 exports.ChatbotService = {
     parse: async (phone, message) => {
         const msg = message.trim().toLowerCase();
@@ -68,6 +70,30 @@ exports.ChatbotService = {
             user.balance += card.amount;
             await user.save();
             return 'Topped up! ' + card.amount + ' KAS added.';
+        }
+        if (msg.startsWith('/airtime')) {
+            const parts = msg.split(' ');
+            if (parts.length < 4)
+                return 'Usage: /airtime [network] [phone] [amount in naira]\nExample: /airtime MTN 08012345678 1000';
+            if (!user)
+                return 'No wallet found. Say Hi to create one.';
+            const network = parts[1].toUpperCase();
+            const targetPhone = parts[2];
+            const amountNaira = parseFloat(parts[3]);
+            if (isNaN(amountNaira) || amountNaira <= 0)
+                return 'Invalid amount.';
+            const requiredKAS = await (0, price_1.nairaToKAS)(amountNaira);
+            if (user.balance < requiredKAS)
+                return 'Insufficient balance. Need ' + requiredKAS.toFixed(4) + ' KAS.';
+            const result = await billpay_service_1.BillPayService.buyAirtime(targetPhone, amountNaira, network);
+            if (!result.success)
+                return result.message;
+            user.balance -= requiredKAS;
+            await user.save();
+            return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
+        }
+        if (msg === '/help') {
+            return 'Kasapp commands:\nHi - open your wallet\n/balance - check balance\n/send [phone] [amount] - send KAS\n/redeem [code] - redeem a voucher\n/airtime [network] [phone] [amount] - buy airtime\n/help - this menu';
         }
         if (msg === '/help') {
             return 'Kasapp commands:\nHi - open your wallet\n/balance - check balance\n/send [phone] [amount] - send KAS\n/redeem [code] - redeem a voucher\n/help - this menu';
