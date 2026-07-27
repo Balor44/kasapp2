@@ -8,12 +8,16 @@ const OPERATOR_MNEMONIC = process.env.OPERATOR_WALLET_MNEMONIC!;
 export const redeemCard = async (req: Request, res: Response): Promise<void> => {
   try {
     const { phone, code } = req.body;
+    console.log('[REDEEM DEBUG] phone:', phone, 'code:', code);
+
     if (!phone || !code) { res.status(400).json({ error: 'phone and code are required' }); return; }
 
     const user = await UserModel.findOne({ phone });
+    console.log('[REDEEM DEBUG] user found:', !!user);
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
 
     const card = await RechargeCardModel.findOne({ code, used: false });
+    console.log('[REDEEM DEBUG] card query result:', card);
     if (!card) { res.status(404).json({ error: 'Invalid or already used code' }); return; }
 
     const txid = await KaspaService.sendKAS(OPERATOR_MNEMONIC, user.wallet, card.amount);
@@ -32,7 +36,7 @@ export const redeemCard = async (req: Request, res: Response): Promise<void> => 
       txid,
     });
   } catch (error: any) {
-    console.error(error);
+    console.error('[REDEEM ERROR]', error);
     res.status(500).json({ error: error.message || 'Server error' });
   }
 };

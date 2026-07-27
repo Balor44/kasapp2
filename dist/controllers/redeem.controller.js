@@ -8,16 +8,19 @@ const OPERATOR_MNEMONIC = process.env.OPERATOR_WALLET_MNEMONIC;
 const redeemCard = async (req, res) => {
     try {
         const { phone, code } = req.body;
+        console.log('[REDEEM DEBUG] phone:', phone, 'code:', code);
         if (!phone || !code) {
             res.status(400).json({ error: 'phone and code are required' });
             return;
         }
         const user = await User_1.UserModel.findOne({ phone });
+        console.log('[REDEEM DEBUG] user found:', !!user);
         if (!user) {
             res.status(404).json({ error: 'User not found' });
             return;
         }
         const card = await RechargeCard_1.RechargeCardModel.findOne({ code, used: false });
+        console.log('[REDEEM DEBUG] card query result:', card);
         if (!card) {
             res.status(404).json({ error: 'Invalid or already used code' });
             return;
@@ -36,7 +39,7 @@ const redeemCard = async (req, res) => {
         });
     }
     catch (error) {
-        console.error(error);
+        console.error('[REDEEM ERROR]', error);
         res.status(500).json({ error: error.message || 'Server error' });
     }
 };
