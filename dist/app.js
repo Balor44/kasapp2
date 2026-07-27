@@ -14,10 +14,12 @@ const waitlist_routes_1 = __importDefault(require("./routes/waitlist.routes"));
 const wallet_routes_1 = __importDefault(require("./routes/wallet.routes"));
 const redeem_routes_1 = __importDefault(require("./routes/redeem.routes"));
 const message_routes_1 = __importDefault(require("./routes/message.routes"));
+const admin_routes_1 = __importDefault(require("./routes/admin.routes"));
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
 app.use('/api/wallet', wallet_routes_1.default);
+app.use('/api/admin', admin_routes_1.default);
 app.use('/api/redeem', redeem_routes_1.default);
 app.use('/api', message_routes_1.default);
 app.get('/health', (_req, res) => {
