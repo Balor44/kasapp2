@@ -3,6 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.redeemCard = void 0;
 const User_1 = require("../models/User");
 const RechargeCard_1 = require("../models/RechargeCard");
+const kaspa_service_1 = require("../wallet/kaspa.service");
+const OPERATOR_MNEMONIC = process.env.OPERATOR_WALLET_MNEMONIC;
 const redeemCard = async (req, res) => {
     try {
         const { phone, code } = req.body;
@@ -20,6 +22,7 @@ const redeemCard = async (req, res) => {
             res.status(404).json({ error: 'Invalid or already used code' });
             return;
         }
+        const txid = await kaspa_service_1.KaspaService.sendKAS(OPERATOR_MNEMONIC, user.wallet, card.amount);
         card.used = true;
         card.usedBy = phone;
         card.usedAt = new Date();
@@ -29,10 +32,12 @@ const redeemCard = async (req, res) => {
         res.json({
             credited: card.amount.toFixed(4) + ' KAS',
             newBalance: user.balance.toFixed(4) + ' KAS',
+            txid,
         });
     }
     catch (error) {
-        res.status(500).json({ error: 'Server error' });
+        console.error(error);
+        res.status(500).json({ error: error.message || 'Server error' });
     }
 };
 exports.redeemCard = redeemCard;
