@@ -2,9 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.joinWaitlist = void 0;
 const Waitlist_1 = require("../models/Waitlist");
+const phone_1 = require("../utils/phone");
 const joinWaitlist = async (req, res) => {
     try {
-        const { phone } = req.body;
+        const { phone: rawPhone } = req.body;
+        const phone = (0, phone_1.normalizePhone)(rawPhone);
         if (!phone) {
             res.status(400).json({ error: 'Phone number is required' });
             return;

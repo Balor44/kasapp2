@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { UserModel } from '../models/User';
 import { BillPayService } from '../services/billpay.service';
 import { nairaToKAS } from '../utils/price';
+import { normalizePhone } from '../utils/phone';
 
 async function handleBillPayment(
   req: Request,
@@ -10,7 +11,8 @@ async function handleBillPayment(
   targetField: string
 ): Promise<void> {
   try {
-    const { phone, amount, provider } = req.body;
+    const { phone: rawPhone, amount, provider } = req.body;
+    const phone = normalizePhone(rawPhone);
     const target = req.body[targetField];
 
     if (!phone || !target || !amount || !provider) {
@@ -60,3 +62,4 @@ export const payWater = (req: Request, res: Response) =>
 
 export const payCable = (req: Request, res: Response) =>
   handleBillPayment(req, res, BillPayService.payCable, 'smartcardNumber');
+

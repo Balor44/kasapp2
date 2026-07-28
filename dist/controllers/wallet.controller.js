@@ -3,9 +3,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendMoney = exports.getBalance = exports.createWallet = void 0;
 const User_1 = require("../models/User");
 const kaspa_service_1 = require("../wallet/kaspa.service");
+const phone_1 = require("../utils/phone");
 const createWallet = async (req, res) => {
     try {
-        const { phone } = req.body;
+        const { phone: rawPhone } = req.body;
+        const phone = (0, phone_1.normalizePhone)(rawPhone);
         if (!phone) {
             res.status(400).json({ error: 'phone is required' });
             return;
@@ -38,8 +40,9 @@ const createWallet = async (req, res) => {
 };
 exports.createWallet = createWallet;
 const getBalance = async (req, res) => {
+    const { phone: rawPhone } = req.params;
+    const phone = (0, phone_1.normalizePhone)(req.params.phone);
     try {
-        const { phone } = req.params;
         const user = await User_1.UserModel.findOne({ phone });
         if (!user) {
             res.status(404).json({ error: 'User not found' });
@@ -60,8 +63,10 @@ const sendMoney = async (req, res) => {
             res.status(400).json({ error: 'from, to, and amount are required' });
             return;
         }
-        const sender = await User_1.UserModel.findOne({ phone: from });
-        const receiver = await User_1.UserModel.findOne({ phone: to });
+        const fromPhone = (0, phone_1.normalizePhone)(from);
+        const toPhone = (0, phone_1.normalizePhone)(to);
+        const sender = await User_1.UserModel.findOne({ phone: fromPhone });
+        const receiver = await User_1.UserModel.findOne({ phone: toPhone });
         if (!sender) {
             res.status(404).json({ error: 'Sender not found' });
             return;

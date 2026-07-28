@@ -1,14 +1,17 @@
 import { Request, Response } from 'express';
 import { ChatbotService } from '../services/chatbot.service';
 import { WhatsAppService } from '../services/whatsapp.service';
+import { normalizePhone } from '../utils/phone';
 
 export const handleMessage = async (req: Request, res: Response): Promise<void> => {
   const { phone, message } = req.body;
-  if (!phone || !message) {
+  const normalizedPhone = normalizePhone(phone);
+
+  if (!normalizedPhone || !message) {
     res.status(400).json({ error: 'phone and message are required' });
     return;
   }
-  const reply = await ChatbotService.parse(phone, message);
+  const reply = await ChatbotService.parse(normalizedPhone, message);
   res.json({ reply });
 };
 
@@ -16,11 +19,12 @@ export const handleWebhook = async (req: Request, res: Response): Promise<void> 
   const message = req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
   if (!message) { res.sendStatus(200); return; }
 
-  const phone = message.from;
+  const rawPhone = message.from;
+  const phone = normalizePhone(rawPhone);
   const text = message.text?.body || '';
   const reply = await ChatbotService.parse(phone, text);
 
-  await WhatsAppService.sendMessage(phone, reply);
+  await WhatsAppService.sendMessage(rawPhone, reply);
   res.sendStatus(200);
 };
 
@@ -41,3 +45,4 @@ export const verifyWebhook = (req: Request, res: Response): void => {
     res.sendStatus(403);
   }
 };
+

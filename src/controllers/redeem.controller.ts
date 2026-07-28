@@ -2,12 +2,14 @@ import { Request, Response } from 'express';
 import { UserModel } from '../models/User';
 import { RechargeCardModel } from '../models/RechargeCard';
 import { KaspaService } from '../wallet/kaspa.service';
+import { normalizePhone } from '../utils/phone';
 
 const OPERATOR_MNEMONIC = process.env.OPERATOR_WALLET_MNEMONIC!;
 
 export const redeemCard = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { phone, code } = req.body;
+    const { phone: rawPhone, code } = req.body;
+    const phone = normalizePhone(rawPhone);
     console.log('[REDEEM DEBUG] phone:', phone, 'code:', code);
 
     if (!phone || !code) { res.status(400).json({ error: 'phone and code are required' }); return; }
@@ -40,3 +42,4 @@ export const redeemCard = async (req: Request, res: Response): Promise<void> => 
     res.status(500).json({ error: error.message || 'Server error' });
   }
 };
+

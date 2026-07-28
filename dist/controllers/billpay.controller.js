@@ -4,9 +4,11 @@ exports.payCable = exports.payWater = exports.payElectricity = exports.buyAirtim
 const User_1 = require("../models/User");
 const billpay_service_1 = require("../services/billpay.service");
 const price_1 = require("../utils/price");
+const phone_1 = require("../utils/phone");
 async function handleBillPayment(req, res, serviceFn, targetField) {
     try {
-        const { phone, amount, provider } = req.body;
+        const { phone: rawPhone, amount, provider } = req.body;
+        const phone = (0, phone_1.normalizePhone)(rawPhone);
         const target = req.body[targetField];
         if (!phone || !target || !amount || !provider) {
             res.status(400).json({ error: 'phone, ' + targetField + ', amount, and provider are required' });

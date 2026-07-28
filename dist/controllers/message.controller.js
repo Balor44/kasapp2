@@ -3,13 +3,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.verifyWebhook = exports.handleWebhook = exports.handleMessage = void 0;
 const chatbot_service_1 = require("../services/chatbot.service");
 const whatsapp_service_1 = require("../services/whatsapp.service");
+const phone_1 = require("../utils/phone");
 const handleMessage = async (req, res) => {
     const { phone, message } = req.body;
-    if (!phone || !message) {
+    const normalizedPhone = (0, phone_1.normalizePhone)(phone);
+    if (!normalizedPhone || !message) {
         res.status(400).json({ error: 'phone and message are required' });
         return;
     }
-    const reply = await chatbot_service_1.ChatbotService.parse(phone, message);
+    const reply = await chatbot_service_1.ChatbotService.parse(normalizedPhone, message);
     res.json({ reply });
 };
 exports.handleMessage = handleMessage;
@@ -19,10 +21,11 @@ const handleWebhook = async (req, res) => {
         res.sendStatus(200);
         return;
     }
-    const phone = message.from;
+    const rawPhone = message.from;
+    const phone = (0, phone_1.normalizePhone)(rawPhone);
     const text = message.text?.body || '';
     const reply = await chatbot_service_1.ChatbotService.parse(phone, text);
-    await whatsapp_service_1.WhatsAppService.sendMessage(phone, reply);
+    await whatsapp_service_1.WhatsAppService.sendMessage(rawPhone, reply);
     res.sendStatus(200);
 };
 exports.handleWebhook = handleWebhook;

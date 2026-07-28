@@ -4,10 +4,12 @@ exports.redeemCard = void 0;
 const User_1 = require("../models/User");
 const RechargeCard_1 = require("../models/RechargeCard");
 const kaspa_service_1 = require("../wallet/kaspa.service");
+const phone_1 = require("../utils/phone");
 const OPERATOR_MNEMONIC = process.env.OPERATOR_WALLET_MNEMONIC;
 const redeemCard = async (req, res) => {
     try {
-        const { phone, code } = req.body;
+        const { phone: rawPhone, code } = req.body;
+        const phone = (0, phone_1.normalizePhone)(rawPhone);
         console.log('[REDEEM DEBUG] phone:', phone, 'code:', code);
         if (!phone || !code) {
             res.status(400).json({ error: 'phone and code are required' });

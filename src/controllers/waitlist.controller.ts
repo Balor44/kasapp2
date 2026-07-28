@@ -1,9 +1,11 @@
 import { Request, Response } from 'express';
 import { WaitlistModel } from '../models/Waitlist';
+import { normalizePhone } from '../utils/phone';
 
 export const joinWaitlist = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { phone } = req.body;
+    const { phone: rawPhone } = req.body;
+    const phone = normalizePhone(rawPhone);
     if (!phone) { res.status(400).json({ error: 'Phone number is required' }); return; }
 
     const existing = await WaitlistModel.findOne({ phone });
@@ -21,3 +23,4 @@ export const joinWaitlist = async (req: Request, res: Response): Promise<void> =
     res.status(500).json({ error: 'Server error' });
   }
 };
+
