@@ -93,8 +93,71 @@ export const ChatbotService = {
       return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
     }
 
+    if (msg.startsWith('/electricity')) {
+      const parts = msg.split(' ');
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: /electricity [provider] [meter number] [amount in naira]\nExample: /electricity IKEDC 1234567890 5000';
+      if (!user) return 'You\'ll need a wallet first — just say Hi and I\'ll get you set up.';
+
+      const provider = parts[1].toUpperCase();
+      const meterNumber = parts[2];
+      const amountNaira = parseFloat(parts[3]);
+      if (isNaN(amountNaira) || amountNaira <= 0) return 'That amount doesn\'t look right — try a positive number.';
+
+      const requiredKAS = await nairaToKAS(amountNaira);
+      if (user.balance < requiredKAS) return 'You\'re a little short on balance for that — you\'d need ' + requiredKAS.toFixed(4) + ' KAS.';
+
+      const result = await BillPayService.payElectricity(meterNumber, amountNaira, provider);
+      if (!result.success) return result.message;
+
+      user.balance -= requiredKAS;
+      await user.save();
+      return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
+    }
+
+    if (msg.startsWith('/water')) {
+      const parts = msg.split(' ');
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: /water [provider] [account number] [amount in naira]\nExample: /water LSWC 1234567890 3000';
+      if (!user) return 'You\'ll need a wallet first — just say Hi and I\'ll get you set up.';
+
+      const provider = parts[1].toUpperCase();
+      const accountNumber = parts[2];
+      const amountNaira = parseFloat(parts[3]);
+      if (isNaN(amountNaira) || amountNaira <= 0) return 'That amount doesn\'t look right — try a positive number.';
+
+      const requiredKAS = await nairaToKAS(amountNaira);
+      if (user.balance < requiredKAS) return 'You\'re a little short on balance for that — you\'d need ' + requiredKAS.toFixed(4) + ' KAS.';
+
+      const result = await BillPayService.payWater(accountNumber, amountNaira, provider);
+      if (!result.success) return result.message;
+
+      user.balance -= requiredKAS;
+      await user.save();
+      return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
+    }
+
+    if (msg.startsWith('/cable')) {
+      const parts = msg.split(' ');
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: /cable [provider] [smartcard number] [amount in naira]\nExample: /cable DSTV 1234567890 8500';
+      if (!user) return 'You\'ll need a wallet first — just say Hi and I\'ll get you set up.';
+
+      const provider = parts[1].toUpperCase();
+      const smartcardNumber = parts[2];
+      const amountNaira = parseFloat(parts[3]);
+      if (isNaN(amountNaira) || amountNaira <= 0) return 'That amount doesn\'t look right — try a positive number.';
+
+      const requiredKAS = await nairaToKAS(amountNaira);
+      if (user.balance < requiredKAS) return 'You\'re a little short on balance for that — you\'d need ' + requiredKAS.toFixed(4) + ' KAS.';
+
+      const result = await BillPayService.payCable(smartcardNumber, amountNaira, provider);
+      if (!result.success) return result.message;
+
+      user.balance -= requiredKAS;
+      await user.save();
+      return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
+    }
+
     if (msg === '/help') {
-      return 'Here\'s what I can help you with:\n\nHi — open or check your wallet\n/balance — see how much KAS you\'ve got\n/send [phone] [amount] — send KAS to someone\n/redeem [code] — top up with a voucher code\n/airtime [network] [phone] [amount] — buy airtime\n/help — show this menu again';
+      return 'Here\'s what I can help you with:\n\nHi — open or check your wallet\n/balance — see how much KAS you\'ve got\n/send [phone] [amount] — send KAS to someone\n/redeem [code] — top up with a voucher code\n/airtime [network] [phone] [amount] — buy airtime\n/electricity [provider] [meter number] [amount] — pay electricity\n/water [provider] [account number] [amount] — pay water\n/cable [provider] [smartcard number] [amount] — pay cable\n/help — show this menu again';
     }
 
     return 'Sorry, I didn\'t quite catch that. Type /help to see everything I can do.';
