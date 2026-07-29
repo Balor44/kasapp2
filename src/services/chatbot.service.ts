@@ -57,7 +57,10 @@ export const ChatbotService = {
       if (!user) return 'You\'ll need a wallet first — just say Hi and I\'ll get you set up.';
 
       const code = normalizeVoucherCode(parts[1]);
+      console.log('[CHATBOT REDEEM DEBUG] raw input:', parts[1], '| normalized code:', code, '| phone:', phone);
+
       const card = await RechargeCardModel.findOne({ code, used: false });
+      console.log('[CHATBOT REDEEM DEBUG] card found:', card);
       if (!card) return 'That code doesn\'t look valid, or it\'s already been used. Double-check it and try again?';
 
       card.used = true;

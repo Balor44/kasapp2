@@ -23,6 +23,7 @@ export function generateVoucherCode(): string {
  * then re-groups and re-hyphenates to match the stored format exactly.
  */
 export function normalizeVoucherCode(input: string): string {
+  if (!input || typeof input !== 'string') return '';
   const stripped = input.replace(/[^A-Z0-9]/gi, '').toUpperCase();
   const grouped = stripped.match(/.{1,4}/g);
   return grouped ? grouped.join('-') : stripped;

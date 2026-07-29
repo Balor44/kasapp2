@@ -7,6 +7,7 @@ const kaspa_service_1 = require("../wallet/kaspa.service");
 const billpay_service_1 = require("./billpay.service");
 const price_1 = require("../utils/price");
 const phone_1 = require("../utils/phone");
+const voucherCode_1 = require("../utils/voucherCode");
 exports.ChatbotService = {
     parse: async (phone, message) => {
         const msg = message.trim().toLowerCase();
@@ -56,8 +57,10 @@ exports.ChatbotService = {
                 return 'Just need the code!\nUsage: /redeem [code]';
             if (!user)
                 return 'You\'ll need a wallet first — just say Hi and I\'ll get you set up.';
-            const code = parts[1].toUpperCase();
+            const code = (0, voucherCode_1.normalizeVoucherCode)(parts[1]);
+            console.log('[CHATBOT REDEEM DEBUG] raw input:', parts[1], '| normalized code:', code, '| phone:', phone);
             const card = await RechargeCard_1.RechargeCardModel.findOne({ code, used: false });
+            console.log('[CHATBOT REDEEM DEBUG] card found:', card);
             if (!card)
                 return 'That code doesn\'t look valid, or it\'s already been used. Double-check it and try again?';
             card.used = true;

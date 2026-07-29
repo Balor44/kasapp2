@@ -11,20 +11,22 @@ export const redeemCard = async (req: Request, res: Response): Promise<void> => 
     const code = normalizeVoucherCode(rawCode);
     console.log('[REDEEM DEBUG] phone:', phone, 'code:', code);
 
-    if (!phone || !code) { res.status(400).json({ error: 'phone and code are required' }); return; }
+    if (!phone || !code || code.length !== 14) { 
+      res.status(400).json({ error: 'phone and valid code are required' }); 
+      return; 
+    }
 
     const user = await UserModel.findOne({ phone });
     console.log('[REDEEM DEBUG] user found:', !!user);
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
 
-    const card = await RechargeCardModel.findOne({ code, used: false });
+    const card = await RechargeCardModel.findOneAndUpdate(
+      { code, used: false },
+      { $set: { used: true, usedBy: phone, usedAt: new Date() } },
+      { new: true }
+    );
     console.log('[REDEEM DEBUG] card query result:', card);
     if (!card) { res.status(404).json({ error: 'Invalid or already used code' }); return; }
-
-    card.used = true;
-    card.usedBy = phone;
-    card.usedAt = new Date();
-    await card.save();
 
     user.balance += card.amount;
     await user.save();
