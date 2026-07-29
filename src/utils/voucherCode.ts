@@ -16,3 +16,15 @@ export function generateVoucherCode(): string {
   return raw.match(/.{1,4}/g)!.join('-');
 }
 
+/**
+ * Reconstructs a canonical XXXX-XXXX-XXXX code from whatever a user actually typed.
+ * Strips anything that isn't a letter or digit — handles missing hyphens, stray
+ * spaces, and mobile keyboards that autocorrect "-" into an en dash or similar —
+ * then re-groups and re-hyphenates to match the stored format exactly.
+ */
+export function normalizeVoucherCode(input: string): string {
+  const stripped = input.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+  const grouped = stripped.match(/.{1,4}/g);
+  return grouped ? grouped.join('-') : stripped;
+}
+

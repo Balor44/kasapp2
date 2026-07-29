@@ -2,11 +2,13 @@ import { Request, Response } from 'express';
 import { UserModel } from '../models/User';
 import { RechargeCardModel } from '../models/RechargeCard';
 import { normalizePhone } from '../utils/phone';
+import { normalizeVoucherCode } from '../utils/voucherCode';
 
 export const redeemCard = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { phone: rawPhone, code } = req.body;
+    const { phone: rawPhone, code: rawCode } = req.body;
     const phone = normalizePhone(rawPhone);
+    const code = normalizeVoucherCode(rawCode);
     console.log('[REDEEM DEBUG] phone:', phone, 'code:', code);
 
     if (!phone || !code) { res.status(400).json({ error: 'phone and code are required' }); return; }

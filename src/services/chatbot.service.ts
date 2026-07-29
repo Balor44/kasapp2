@@ -4,6 +4,7 @@ import { KaspaService } from '../wallet/kaspa.service';
 import { BillPayService } from './billpay.service';
 import { nairaToKAS } from '../utils/price';
 import { normalizePhone } from '../utils/phone';
+import { normalizeVoucherCode } from '../utils/voucherCode';
 
 export const ChatbotService = {
   parse: async (phone: string, message: string): Promise<string> => {
@@ -55,7 +56,7 @@ export const ChatbotService = {
       if (parts.length < 2) return 'Just need the code!\nUsage: /redeem [code]';
       if (!user) return 'You\'ll need a wallet first — just say Hi and I\'ll get you set up.';
 
-      const code = parts[1].toUpperCase();
+      const code = normalizeVoucherCode(parts[1]);
       const card = await RechargeCardModel.findOne({ code, used: false });
       if (!card) return 'That code doesn\'t look valid, or it\'s already been used. Double-check it and try again?';
 
