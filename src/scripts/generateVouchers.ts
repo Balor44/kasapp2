@@ -57,7 +57,7 @@ async function main() {
     process.exit(1);
   }
 
-  await mongoose.connect(uri);
+  await mongoose.connect(uri, {dbName: 'kasapp2' });
   console.log(`Generating ${count} voucher(s) worth ${amount} KAS each...`);
 
   const codes = await generateVouchers(amount, count);
