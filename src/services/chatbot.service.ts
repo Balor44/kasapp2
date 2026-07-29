@@ -227,11 +227,32 @@ export const ChatbotService = {
       return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
     }
 
-
-    if (msg === '/help') {
-      return 'Here\'s what I can help you with:\n\nHi — open or check your wallet\n/balance — see how much KAS you\'ve got\n/send [phone] [amount] — send KAS to someone\n/redeem [code] — top up with a voucher code\n/airtime [network] [phone] [amount] — buy airtime\n/electricity [provider] [meter number] [amount] — pay electricity\n/water [provider] [account number] [amount] — pay water\n/cable [provider] [smartcard number] [amount] — pay cable\n/auto — manage recurring utility auto-renewals\n/help — show this menu again';
+if (msg === '/help') {
+      return [
+        `✨ *Kasapp Command Center* ✨`,
+        `Your instant gateway to Kaspa digital payments on WhatsApp!\n`,
+        `📱 *WALLET MANAGEMENT*`,
+        `• *Hi* — Access your wallet & main options`,
+        `• */balance* — Check your live KAS wallet balance\n`,
+        `⚡ *INSTANT TRANSFERS & TOP-UPS*`,
+        `• */send [phone] [amount]*`,
+        `  _Example: /send 08012345678 10_`,
+        `• */redeem [code]*`,
+        `  _Example: /redeem MH29-XXXX-XXXX_\n`,
+        `💡 *UTILITY BILLS (1-TAP)*`,
+        `• */airtime [network] [phone] [naira]*`,
+        `  _Example: /airtime MTN 08012345678 1000_`,
+        `• */electricity [provider] [meter] [naira]*`,
+        `  _Example: /electricity IKEDC 1234567890 5000_`,
+        `• */cable [provider] [smartcard] [naira]*`,
+        `  _Example: /cable DSTV 1234567890 8500_`,
+        `• */water [provider] [account] [naira]*`,
+        `  _Example: /water LSWC 1234567890 3000_\n`,
+        `🔄 *AUTOMATION & AUTOPILOT*`,
+        `• */auto* — Set up & manage recurring bill payments\n`,
+        ` Need help? Reply anytime or visit *kasapp.io*`
+      ].join('\n');
     }
-
 
     return 'Sorry, I didn\'t quite catch that. Type /help to see everything I can do.';
   },
