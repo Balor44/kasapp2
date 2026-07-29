@@ -1,4 +1,4 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import { Schema, model, Document } from 'mongoose';
 
 export interface IRechargeCard extends Document {
   code: string;
@@ -9,11 +9,12 @@ export interface IRechargeCard extends Document {
 }
 
 const RechargeCardSchema = new Schema<IRechargeCard>({
-  code:   { type: String, required: true, unique: true },
+  code: { type: String, required: true, unique: true, index: true },
   amount: { type: Number, required: true },
-  used:   { type: Boolean, default: false },
+  used: { type: Boolean, default: false },
   usedBy: { type: String },
   usedAt: { type: Date },
 });
 
-export const RechargeCardModel = mongoose.model<IRechargeCard>('RechargeCard', RechargeCardSchema);
+// Explicitly set 'rechargecards' as the third parameter to enforce collection name consistency
+export const RechargeCardModel = model<IRechargeCard>('RechargeCard', RechargeCardSchema, 'rechargecards');
