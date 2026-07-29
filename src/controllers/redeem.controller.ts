@@ -9,16 +9,22 @@ export const redeemCard = async (req: Request, res: Response): Promise<void> => 
     const { phone: rawPhone, code: rawCode } = req.body;
     const phone = normalizePhone(rawPhone);
     const code = normalizeVoucherCode(rawCode);
-    console.log('[REDEEM DEBUG] phone:', phone, 'code:', code);
+    console.log('[REDEEM DEBUG] rawPhone:', rawPhone, 'rawCode:', rawCode);
+    console.log('[REDEEM DEBUG] normalized phone:', phone, 'code:', code, 'codeLength:', code?.length);
 
     if (!phone || !code || code.length !== 14) { 
-      res.status(400).json({ error: 'phone and valid code are required' }); 
+      console.log('[REDEEM REJECTED] Validation check failed');
+      res.status(400).json({ error: 'phone and code are required' }); 
       return; 
     }
 
     const user = await UserModel.findOne({ phone });
     console.log('[REDEEM DEBUG] user found:', !!user);
-    if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+    if (!user) { 
+      console.log('[REDEEM REJECTED] Phone number not found in DB:', phone);
+      res.status(404).json({ error: 'User not found' }); 
+      return; 
+    }
 
     const card = await RechargeCardModel.findOneAndUpdate(
       { code, used: false },
@@ -26,7 +32,11 @@ export const redeemCard = async (req: Request, res: Response): Promise<void> => 
       { new: true }
     );
     console.log('[REDEEM DEBUG] card query result:', card);
-    if (!card) { res.status(404).json({ error: 'Invalid or already used code' }); return; }
+    if (!card) { 
+      console.log('[REDEEM REJECTED] MongoDB query for card returned null:', code);
+      res.status(404).json({ error: 'Invalid or already used code' }); 
+      return; 
+    }
 
     user.balance += card.amount;
     await user.save();
