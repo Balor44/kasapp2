@@ -13,8 +13,7 @@ exports.ChatbotService = {
         const user = await User_1.UserModel.findOne({ phone });
         if (msg === 'hi' || msg === 'hello' || msg === 'start') {
             if (user) {
-                const balance = await kaspa_service_1.KaspaService.getBalance(user.wallet);
-                return 'Hey, welcome back! 👋\nYou\'ve got ' + balance.toFixed(4) + ' KAS sitting in your wallet.\n\nType /help if you need a reminder of what I can do.';
+                return 'Hey, welcome back! 👋\nYou\'ve got ' + user.balance.toFixed(4) + ' KAS sitting in your wallet.\n\nType /help if you need a reminder of what I can do.';
             }
             const { publicKey, secret } = await kaspa_service_1.KaspaService.generateWallet();
             await User_1.UserModel.create({
@@ -28,8 +27,7 @@ exports.ChatbotService = {
         if (msg === '/balance') {
             if (!user)
                 return 'Looks like you don\'t have a wallet yet — just say Hi and I\'ll set one up for you.';
-            const balance = await kaspa_service_1.KaspaService.getBalance(user.wallet);
-            return 'Here\'s where you stand:\n' + balance.toFixed(4) + ' KAS';
+            return 'Here\'s where you stand:\n' + user.balance.toFixed(4) + ' KAS';
         }
         if (msg.startsWith('/send')) {
             const parts = msg.split(' ');
@@ -37,22 +35,20 @@ exports.ChatbotService = {
                 return 'Almost! I need a bit more info.\nUsage: /send [phone] [amount]\nExample: /send 08012345678 10';
             if (!user)
                 return 'You\'ll need a wallet first — just say Hi and I\'ll get you set up.';
-            if (!user.mnemonic)
-                return 'Something\'s off with your wallet\'s key material — I can\'t send from it right now. Please reach out to support.';
             const toPhone = (0, phone_1.normalizePhone)(parts[1]);
             const amount = parseFloat(parts[2]);
             if (isNaN(amount) || amount <= 0)
                 return 'That amount doesn\'t look right — try a positive number, like 10.';
+            if (user.balance < amount)
+                return 'You don\'t have enough KAS for that — you\'ve got ' + user.balance.toFixed(4) + ' KAS.';
             const receiver = await User_1.UserModel.findOne({ phone: toPhone });
             if (!receiver)
                 return toPhone + ' isn\'t on Kasapp yet, so I can\'t send them anything just yet. Maybe invite them to join?';
-            try {
-                const txid = await kaspa_service_1.KaspaService.sendKAS(user.mnemonic, receiver.wallet, amount);
-                return 'Done! Sent ' + amount + ' KAS to ' + toPhone + '.\nTxID: ' + txid.slice(0, 16) + '...';
-            }
-            catch (error) {
-                return 'Hmm, that transaction didn\'t go through: ' + (error.message || 'unknown error') + '. Mind trying again?';
-            }
+            user.balance -= amount;
+            receiver.balance += amount;
+            await user.save();
+            await receiver.save();
+            return 'Done! Sent ' + amount + ' KAS to ' + toPhone + '.\nYour new balance: ' + user.balance.toFixed(4) + ' KAS';
         }
         if (msg.startsWith('/redeem')) {
             const parts = msg.split(' ');

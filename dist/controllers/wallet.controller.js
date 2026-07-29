@@ -48,8 +48,7 @@ const getBalance = async (req, res) => {
             res.status(404).json({ error: 'User not found' });
             return;
         }
-        const liveBalance = await kaspa_service_1.KaspaService.getBalance(user.wallet);
-        res.json({ wallet: user.wallet, balance: liveBalance.toFixed(4) + ' KAS' });
+        res.json({ wallet: user.wallet, balance: user.balance.toFixed(4) + ' KAS' });
     }
     catch (error) {
         res.status(500).json({ error: 'Server error' });
@@ -80,12 +79,15 @@ const sendMoney = async (req, res) => {
             res.status(400).json({ error: 'Invalid amount' });
             return;
         }
-        if (!sender.mnemonic) {
-            res.status(400).json({ error: 'Sender wallet missing key material' });
+        if (sender.balance < amt) {
+            res.status(400).json({ error: 'Insufficient balance' });
             return;
         }
-        const txid = await kaspa_service_1.KaspaService.sendKAS(sender.mnemonic, receiver.wallet, amt);
-        res.json({ status: 'success', txid });
+        sender.balance -= amt;
+        receiver.balance += amt;
+        await sender.save();
+        await receiver.save();
+        res.json({ status: 'success', newBalance: sender.balance.toFixed(4) + ' KAS' });
     }
     catch (error) {
         console.error(error);

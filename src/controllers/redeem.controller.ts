@@ -1,10 +1,7 @@
 import { Request, Response } from 'express';
 import { UserModel } from '../models/User';
 import { RechargeCardModel } from '../models/RechargeCard';
-import { KaspaService } from '../wallet/kaspa.service';
 import { normalizePhone } from '../utils/phone';
-
-const OPERATOR_MNEMONIC = process.env.OPERATOR_WALLET_MNEMONIC!;
 
 export const redeemCard = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -22,8 +19,6 @@ export const redeemCard = async (req: Request, res: Response): Promise<void> => 
     console.log('[REDEEM DEBUG] card query result:', card);
     if (!card) { res.status(404).json({ error: 'Invalid or already used code' }); return; }
 
-    const txid = await KaspaService.sendKAS(OPERATOR_MNEMONIC, user.wallet, card.amount);
-
     card.used = true;
     card.usedBy = phone;
     card.usedAt = new Date();
@@ -35,7 +30,6 @@ export const redeemCard = async (req: Request, res: Response): Promise<void> => 
     res.json({
       credited: card.amount.toFixed(4) + ' KAS',
       newBalance: user.balance.toFixed(4) + ' KAS',
-      txid,
     });
   } catch (error: any) {
     console.error('[REDEEM ERROR]', error);
