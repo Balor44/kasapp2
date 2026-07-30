@@ -51,38 +51,51 @@ export const ChatbotService = {
 
 
     // -------------------------------------------------------------
-    // 2. STATE MACHINE HANDLER: PIN CHECK FOR SEED EXPORT
-    // -------------------------------------------------------------
-    if (userState.step === 'AWAITING_EXPORT_PIN') {
-      userState.step = ''; // Reset state immediately
-      await saveUserState(senderPhone, userState);
+// 2. STATE MACHINE HANDLER: PIN CHECK FOR SEED EXPORT
+// -------------------------------------------------------------
+if (userState.step === 'AWAITING_EXPORT_PIN') {
+  if (!user || !user.pin) {
+    userState.step = '';
+    await saveUserState(senderPhone, userState);
+    return 'Session expired or security PIN not set.';
+  }
 
 
-      if (!user || !user.pin) return 'Session expired or security PIN not set.';
+  const isMatch = await bcrypt.compare(rawMsg, user.pin);
+  
+  if (!isMatch) {
+    // Keep state cleared on failure so they have to type /export again
+    userState.step = '';
+    await saveUserState(senderPhone, userState);
+    return '❌ *Incorrect Security PIN.*\n\nExport request cancelled for your protection.';
+  }
 
 
-      const isMatch = await bcrypt.compare(rawMsg, user.pin);
-      if (!isMatch) {
-        return '❌ *Incorrect Security PIN.*\n\nExport request cancelled for your protection.';
-      }
+  try {
+    const rawMnemonic = decryptMnemonic(user.mnemonic, process.env.ENCRYPTION_KEY || '');
+    
+    // Clear state after successful decryption
+    userState.step = '';
+    await saveUserState(senderPhone, userState);
 
 
-      const rawMnemonic = decryptMnemonic(user.mnemonic, process.env.ENCRYPTION_KEY!);
-
-
-      return [
-        `🔑 *SECRET RECOVERY PHRASE* 🔑\n`,
-        `\`\`\``,
-        `${rawMnemonic}`,
-        `\`\`\`\n`,
-        `⚠️ *CRITICAL SECURITY NOTICE:*`,
-        `• Never share these words with anyone.`,
-        `• Anyone with this phrase controls your entire KAS balance.`,
-        `• Write it down on paper and delete this chat message!`
-      ].join('\n');
-    }
-
-
+    return [
+      `🔑 *SECRET RECOVERY PHRASE* 🔑\n`,
+      `\`\`\``,
+      `${rawMnemonic}`,
+      `\`\`\`\n`,
+      `⚠️ *CRITICAL SECURITY NOTICE:*`,
+      `• Never share these words with anyone.`,
+      `• Anyone with this phrase controls your entire KAS balance.`,
+      `• Write it down on paper and delete this chat message!`
+    ].join('\n');
+  } catch (err: any) {
+    console.error('[DECRYPT_ERROR]', err.message);
+    userState.step = '';
+    await saveUserState(senderPhone, userState);
+    return '❌ *Decryption Failed:* System encryption key missing or corrupted key format.';
+  }
+}
     // -------------------------------------------------------------
     // 3. STANDARD COMMANDS
     // -------------------------------------------------------------
