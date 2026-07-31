@@ -1,410 +1,485 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, FC } from "react";
 
-const GREEN = "#16A34A";
-const DARK_GREEN = "#0F3D24";
-const LIGHT_GREEN_BG = "#EAF6EF";
-const TEXT = "#0F172A";
-const MUTED = "#64748B";
-const BORDER = "#E2E8F0";
-const CARD_BG = "#F0FBF4";
-const WHITE = "#FFFFFF";
 
-const GITHUB = "https://github.com/Balor44/kasapp2";
+/* ============================================
+   TYPES & INTERFACES
+============================================ */
 
-const NAV_LINKS = [
-  { label: "Home", href: "#home" },
-  { label: "About", href: "#about" },
-  { label: "Features", href: "#features" },
-  { label: "How It Works", href: "#how-it-works" },
-  { label: "Roadmap", href: "#roadmap" },
-  { label: "FAQ", href: "#faq" },
-  { label: "Contact", href: "#contact" },
-];
 
-const CHAT_MESSAGES = [
-  { from: "user", text: "/balance", time: "9:41 AM" },
-  { from: "bot", text: "Your Kaspa Balance\n123.456 KAS\napprox 145,678.90 NGN", time: "9:41 AM" },
-  { from: "user", text: "/send 08012345678 10", time: "9:42 AM" },
-  { from: "bot", text: "Sent 10 KAS to\n08012345678\nTxID: 3f7a...8c2d", time: "9:42 AM" },
-];
+type MessageFrom = "user" | "bot";
 
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 900 : false);
-  useEffect(() => {
-    const handler = () => setIsMobile(window.innerWidth < 900);
-    window.addEventListener("resize", handler);
-    return () => window.removeEventListener("resize", handler);
-  }, []);
-  return isMobile;
+
+interface ScriptMessage {
+  from: MessageFrom;
+  text: string;
 }
 
-const KaspaLogo = ({ size = 28 }) => (
-  <div style={{ width: size, height: size, borderRadius: size * 0.3, background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-    <svg width={size * 0.55} height={size * 0.55} viewBox="0 0 24 24" fill="none">
-      <path d="M6 3L16 12L6 21" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M13 3L20 12L13 21" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity="0.6" />
-    </svg>
-  </div>
-);
 
-const IconWrap = ({ children, size = 44 }) => (
-  <div style={{ width: size, height: size, borderRadius: size * 0.27, background: LIGHT_GREEN_BG, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-    {children}
-  </div>
-);
+interface BubbleProps {
+  from: MessageFrom;
+  text: string;
+  cursor?: boolean;
+}
 
-const WhatsAppIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill={GREEN}>
-    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-  </svg>
-);
 
-const BoltIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={GREEN} strokeWidth="2">
-    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-  </svg>
-);
+interface CapabilityItem {
+  t: string;
+  d: string;
+}
 
-const CoinsIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={GREEN} strokeWidth="2">
-    <ellipse cx="12" cy="5" rx="9" ry="3" />
-    <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
-    <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3" />
-  </svg>
-);
 
-const ShieldIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={GREEN} strokeWidth="2">
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-  </svg>
-);
+interface FAQItem {
+  q: string;
+  a: string;
+}
 
-const PhoneIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={GREEN} strokeWidth="2">
-    <rect x="5" y="2" width="14" height="20" rx="2" />
-    <line x1="12" y1="18" x2="12.01" y2="18" />
-  </svg>
-);
 
-const UsersIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-    <circle cx="9" cy="7" r="4" />
-    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-  </svg>
-);
+/* ============================================
+   DESIGN CONSTANTS
+============================================ */
 
-const GlobeIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-    <circle cx="12" cy="12" r="10" />
-    <line x1="2" y1="12" x2="22" y2="12" />
-    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-  </svg>
-);
 
-function WhatsAppMockup({ activeMsg, small }) {
-  const w = small ? 220 : 260;
+const INK = "#0C1210";
+const SURFACE = "#141C19";
+const SURFACE_2 = "#1A2420";
+const PAPER = "#E8ECE9";
+const DIM = "#8FA39A";
+const DIM_2 = "#54655E";
+const LINE = "rgba(232,236,233,0.09)";
+const LINE_STRONG = "rgba(232,236,233,0.16)";
+const GREEN = "#3ED598";
+const AMBER = "#F2A65A";
+
+
+const SERIF = "'Fraunces', Georgia, serif";
+const MONO = "'IBM Plex Mono', ui-monospace, monospace";
+const SANS = "'Inter', system-ui, sans-serif";
+
+
+const GITHUB = "https://github.com/Balor44/kasapp2";
+const KASPA_UNIVERSITY = "https://kaspa.university/";
+
+
+const NAV = [
+  { label: "Product", href: "#product" },
+  { label: "Story", href: "#story" },
+  { label: "Metrics & ROI", href: "#metrics" },
+  { label: "Security", href: "#security" },
+  { label: "Learn Kaspa", href: "#learn" },
+  { label: "FAQ", href: "#faq" },
+];
+
+
+/* ---------- Live BlockDAG Signature ---------- */
+
+
+export const BlockDag: FC = () => {
+  const [tick, setTick] = useState<number>(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1200);
+    return () => clearInterval(id);
+  }, []);
+
+
+  const nodes = [
+    { x: 20, y: 60, r: 0 }, { x: 20, y: 110, r: 0 },
+    { x: 90, y: 40, r: 1 }, { x: 90, y: 85, r: 1 }, { x: 90, y: 130, r: 1 },
+    { x: 160, y: 60, r: 2 }, { x: 160, y: 105, r: 2 },
+    { x: 230, y: 85, r: 3 },
+  ];
+  const edges = [
+    [0, 2], [0, 3], [1, 3], [1, 4],
+    [2, 5], [3, 5], [3, 6], [4, 6],
+    [5, 7], [6, 7],
+  ];
+  const activeRound = tick % 4;
+
+
   return (
-    <div style={{ width: w, background: "#111", borderRadius: 28, padding: "10px 5px", boxShadow: "0 30px 60px rgba(15,61,36,0.22)", border: "1px solid #222", margin: "0 auto" }}>
-      <div style={{ background: "#075E54", borderRadius: "20px 20px 0 0", padding: "9px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ width: 28, height: 28, borderRadius: "50%", background: GREEN, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-            <path d="M6 3L16 12L6 21" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </div>
-        <div>
-          <div style={{ color: "white", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-            Kasapp <span style={{ color: "#4FC3F7", fontSize: 10 }}>✓</span>
-          </div>
-          <div style={{ color: "#B5E8D5", fontSize: 9 }}>online</div>
-        </div>
-      </div>
-      <div style={{ background: "#ECE5DD", minHeight: small ? 260 : 300, padding: "8px 6px", display: "flex", flexDirection: "column", gap: 5, overflowY: "auto", maxHeight: small ? 260 : 300 }}>
-        {CHAT_MESSAGES.slice(0, activeMsg + 1).map((msg, i) => (
-          <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: msg.from === "user" ? "flex-end" : "flex-start" }}>
-            <div style={{
-              background: msg.from === "user" ? "#DCF8C6" : "white",
-              borderRadius: msg.from === "user" ? "8px 8px 2px 8px" : "8px 8px 8px 2px",
-              padding: "6px 9px", maxWidth: "85%",
-              boxShadow: "0 1px 1px rgba(0,0,0,0.1)"
-            }}>
-              <div style={{ color: "#111", fontSize: 11, lineHeight: 1.5, whiteSpace: "pre-line", fontWeight: msg.text.startsWith("Your") || msg.text.startsWith("Sent") ? 600 : 400 }}>
-                {msg.text.includes("Sent") && <span style={{ color: GREEN }}>✓ </span>}
-                {msg.text.includes("Balance") && <span>⚠️ </span>}
-                {msg.text}
-              </div>
-              <div style={{ color: "#8696A0", fontSize: 8, textAlign: "right", marginTop: 2 }}>{msg.time}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div style={{ background: "#F0F0F0", borderRadius: "0 0 20px 20px", padding: "7px 9px", display: "flex", alignItems: "center", gap: 5 }}>
-        <div style={{ flex: 1, background: "white", borderRadius: 20, padding: "5px 10px", color: "#8696A0", fontSize: 10 }}>Type a message</div>
-        <div style={{ width: 24, height: 24, borderRadius: "50%", background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /></svg>
-        </div>
+    <svg width="250" height="170" viewBox="0 0 250 170" style={{ overflow: "visible" }}>
+      {edges.map(([a, b], i) => {
+        const n1 = nodes[a], n2 = nodes[b];
+        const lit = n1.r <= activeRound && n2.r <= activeRound;
+        return (
+          <line
+            key={i} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y}
+            stroke={lit ? GREEN : LINE_STRONG} strokeWidth={lit ? 1.4 : 1}
+            style={{ transition: "stroke 0.6s ease" }}
+          />
+        );
+      })}
+      {nodes.map((n, i) => {
+        const active = n.r === activeRound;
+        const lit = n.r <= activeRound;
+        return (
+          <g key={i}>
+            {active && (
+              <circle cx={n.x} cy={n.y} r={11} fill="none" stroke={GREEN} strokeWidth="1" opacity="0.5">
+                <animate attributeName="r" values="7;15" dur="1.2s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.5;0" dur="1.2s" repeatCount="indefinite" />
+              </circle>
+            )}
+            <circle
+              cx={n.x} cy={n.y} r={active ? 7 : 5.5}
+              fill={lit ? GREEN : SURFACE_2}
+              stroke={lit ? GREEN : LINE_STRONG}
+              strokeWidth="1.5"
+              style={{ transition: "all 0.6s ease" }}
+            />
+          </g>
+        );
+      })}
+    </svg>
+  );
+};
+
+
+/* ---------- Typed Conversation Component ---------- */
+
+
+const SCRIPT: ScriptMessage[] = [
+  { from: "user", text: "Hi" },
+  { from: "bot", text: "⚡ Wallet ready.\nkaspa:qq83x…9a2\n\nCommands: /balance, /send, /airtime" },
+  { from: "user", text: "/balance" },
+  { from: "bot", text: "1,240.0000 KAS\n≈ ₦186,000" },
+  { from: "user", text: "/send 08123456789 50" },
+  { from: "bot", text: "✅ Sent — confirmed by BlockDAG in 0.9s\nTxID: 7b14b7…60da1" },
+  { from: "user", text: "/airtime MTN 08012345678 1000" },
+  { from: "bot", text: "🎉 Airtime Dispatched!\n₦1,000 MTN Airtime delivered." }
+];
+
+
+function useTypedConversation() {
+  const [visible, setVisible] = useState<ScriptMessage[]>([]);
+  const [typing, setTyping] = useState<ScriptMessage | null>(null);
+  const idx = useRef<number>(0);
+  const ch = useRef<number>(0);
+
+
+  useEffect(() => {
+    let cancelled = false;
+    function step() {
+      if (cancelled) return;
+      const i = idx.current % SCRIPT.length;
+      if (i === 0 && ch.current === 0) setVisible([]);
+      const scriptItem = SCRIPT[i];
+      ch.current += Math.max(1, Math.floor(scriptItem.text.length / 16));
+      setTyping({ from: scriptItem.from, text: scriptItem.text.slice(0, ch.current) });
+      if (ch.current >= scriptItem.text.length) {
+        setVisible((p) => p.concat([scriptItem]));
+        setTyping(null);
+        ch.current = 0;
+        idx.current += 1;
+        setTimeout(step, scriptItem.from === "user" ? 600 : 1300);
+      } else {
+        setTimeout(step, 28);
+      }
+    }
+    const t = setTimeout(step, 700);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, []);
+
+
+  return { visible, typing };
+}
+
+
+export const Bubble: FC<BubbleProps> = ({ from, text, cursor }) => {
+  const isUser = from === "user";
+  return (
+    <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
+      <div style={{
+        maxWidth: "85%", fontFamily: isUser ? SANS : MONO, fontSize: 12.5, lineHeight: 1.5, whiteSpace: "pre-line",
+        color: isUser ? INK : GREEN,
+        background: isUser ? PAPER : "rgba(62,213,152,0.08)",
+        border: isUser ? "none" : "1px solid rgba(62,213,152,0.22)",
+        borderRadius: isUser ? "10px 10px 2px 10px" : "10px 10px 10px 2px",
+        padding: "8px 12px",
+      }}>
+        {text}{cursor && <span style={{ opacity: 0.5 }}>▌</span>}
       </div>
     </div>
   );
-}
+};
 
-export default function KasappLanding() {
-  const [activeMsg, setActiveMsg] = useState(0);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [phone, setPhone] = useState("");
-  const [waitlistStatus, setWaitlistStatus] = useState("idle");
-  const [waitlistNumber, setWaitlistNumber] = useState(null);
-  const isMobile = useIsMobile();
+
+export const Conversation: FC = () => {
+  const { visible, typing } = useTypedConversation();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveMsg(m => (m + 1) % CHAT_MESSAGES.length);
-    }, 2200);
-    return () => clearInterval(interval);
-  }, []);
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [visible, typing]);
+
+
+  return (
+    <div style={{ width: "min(350px, 88vw)", background: SURFACE, border: "1px solid " + LINE_STRONG, borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ padding: "12px 16px", background: SURFACE_2, borderBottom: "1px solid " + LINE, display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: GREEN }} />
+        <span style={{ fontFamily: MONO, fontSize: 12, color: PAPER, fontWeight: 500 }}>Kasapp Engine v22.0</span>
+      </div>
+      <div ref={scrollRef} style={{ minHeight: 280, maxHeight: 280, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {visible.map((m, i) => <Bubble key={i} from={m.from} text={m.text} />)}
+        {typing && <Bubble from={typing.from} text={typing.text} cursor />}
+      </div>
+    </div>
+  );
+};
+
+
+/* ---------- Main Landing Page ---------- */
+
+
+export default function KasappLanding() {
+  const [menuOpen, setMenuOpen] = useState<boolean>(false);
+  const [phone, setPhone] = useState<string>("");
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [number, setNumber] = useState<number | null>(null);
+  const [openFaq, setOpenFaq] = useState<number>(-1);
+
 
   const joinWaitlist = async () => {
     if (!phone.trim()) return;
-    setWaitlistStatus("loading");
+    setStatus("loading");
     try {
-      const res = await fetch("/api/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone }),
-      });
+      const res = await fetch("/api/waitlist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone }) });
       const data = await res.json();
-      if (res.ok) {
-        setWaitlistStatus("success");
-        setWaitlistNumber(data.number);
-      } else {
-        setWaitlistStatus("error");
-        if (data.number) setWaitlistNumber(data.number);
-      }
-    } catch {
-      setWaitlistStatus("error");
-    }
+      if (res.ok) { setStatus("success"); setNumber(data.number); }
+      else { setStatus("error"); if (data.number) setNumber(data.number); }
+    } catch { setStatus("error"); }
   };
 
+
+  const CAPABILITIES: CapabilityItem[] = [
+    { t: "P2P Transfers", d: "Send KAS to any phone number. Auto-provisions unregistered users with instant WhatsApp alerts." },
+    { t: "Voucher Cash-In", d: "Redeem OTC merchant cash vouchers (/redeem) without entering exchange KYC queues." },
+    { t: "Utility Bills", d: "Direct 1-tap settlement for Airtime, Mobile Data, Electricity Meters, Cable TV, and Water." },
+    { t: "Autopilot Renewals", d: "Configure recurring background automation rules (/auto) for monthly subscriptions." },
+  ];
+
+
+  const FAQS: FAQItem[] = [
+    { q: "What is Kasapp?", a: "Kasapp is a WhatsApp-native payment engine built on Kaspa Layer-1. It abstracts seed phrases and exchange KYC into everyday chat commands, allowing users to send KAS and settle utility bills in seconds." },
+    { q: "Why use Kaspa for bill payments in Africa?", a: "Kaspa's BlockDAG achieves sub-second finality with negligible fees. Traditional crypto transfers are ruined by heavy withdrawal surcharges and slow confirmations; Kasapp makes micro-payments practical." },
+    { q: "How are keys secured against server compromise?", a: "Mnemonics are encrypted at rest using AES-256-GCM. Viewing seeds (/export) or updating settings strictly requires salted bcrypt PIN authentication. Additionally, 90% of system funds sit in an offline 2-of-3 Kaspa Multi-Sig Vault." },
+    { q: "How does Kasapp scale network adoption?", a: "Every /send command sent to an unregistered recipient automatically provisions a new Kaspa wallet and dispatches a notification, creating an organic acquisition loop across university communities." },
+    { q: "Want to learn the underlying technology?", a: "For in-depth education on BlockDAG consensus and GHOSTDAG mechanics, Kaspa University provides a full course library with on-chain proof of completion." },
+  ];
+
+
   return (
-    <div style={{ background: WHITE, color: TEXT, fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh", overflowX: "hidden" }}>
-
-      <style>{`
-        * { box-sizing: border-box; }
-        html, body { overflow-x: hidden; max-width: 100%; }
-        @media (max-width: 900px) {
-          .kasapp-nav-links { display: none !important; }
-          .kasapp-mobile-btn { display: flex !important; }
-          .kasapp-hero-grid { grid-template-columns: 1fr !important; text-align: center; }
-          .kasapp-hero-cta { justify-content: center !important; }
-          .kasapp-hero-badge { margin-left: auto; margin-right: auto; }
-          .kasapp-hero-launch-card { margin-left: auto; margin-right: auto; }
-          .kasapp-top-features { grid-template-columns: repeat(2, 1fr) !important; }
-          .kasapp-why-grid { grid-template-columns: 1fr 1fr !important; }
-          .kasapp-how-grid { grid-template-columns: 1fr 1fr !important; }
-          .kasapp-bottom-grid { grid-template-columns: 1fr 1fr !important; }
-          .kasapp-hero-title { font-size: 30px !important; }
-          .kasapp-hero-p { max-width: 100% !important; }
-        }
-        @media (max-width: 520px) {
-          .kasapp-top-features { grid-template-columns: 1fr !important; }
-          .kasapp-why-grid { grid-template-columns: 1fr !important; }
-          .kasapp-how-grid { grid-template-columns: 1fr !important; }
-          .kasapp-bottom-grid { grid-template-columns: 1fr !important; }
-          .kasapp-hero-title { font-size: 26px !important; }
-          .kasapp-section-pad { padding-left: 16px !important; padding-right: 16px !important; }
-        }
-      `}</style>
-
-      {/* NAV */}
-      <nav style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(10px)", borderBottom: "1px solid " + BORDER, padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 58 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <KaspaLogo size={28} />
-          <span style={{ fontWeight: 800, fontSize: 16 }}>Kasapp</span>
+    <div style={{ background: INK, color: PAPER, fontFamily: SANS, minHeight: "100vh", overflowX: "hidden" }}>
+      <nav style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(12,18,16,0.92)", backdropFilter: "blur(14px)", borderBottom: "1px solid " + LINE, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 64 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 10, height: 10, borderRadius: "50%", background: GREEN }} />
+          <span style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 20, color: PAPER }}>Kasapp ⚡</span>
         </div>
-        <div className="kasapp-nav-links" style={{ display: "flex", gap: 22, alignItems: "center" }}>
-          {NAV_LINKS.map(n => (
-            <a key={n.label} href={n.href} style={{ color: n.label === "Home" ? GREEN : "#334155", fontSize: 13, fontWeight: 500, textDecoration: "none", borderBottom: n.label === "Home" ? "2px solid " + GREEN : "none", paddingBottom: 4 }}>{n.label}</a>
-          ))}
-          <button onClick={() => document.getElementById("waitlist-form")?.scrollIntoView({ behavior: "smooth" })} style={{ background: GREEN, color: "white", border: "none", borderRadius: 24, padding: "9px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-            Join Waitlist →
-          </button>
+        <div className="kl-nav-links" style={{ display: "flex", gap: 28, alignItems: "center" }}>
+          {NAV.map((n) => <a key={n.label} href={n.href} style={{ color: DIM, fontSize: 13.5, textDecoration: "none" }}>{n.label}</a>)}
+          <a href="#waitlist" style={{ background: GREEN, color: INK, borderRadius: 8, padding: "9px 18px", fontSize: 13.5, fontWeight: 600, textDecoration: "none" }}>Launch Pilot</a>
         </div>
-        <button className="kasapp-mobile-btn" onClick={() => setMenuOpen(!menuOpen)} style={{ display: "none", background: "none", border: "none", fontSize: 20, cursor: "pointer", padding: 4 }}>
-          {menuOpen ? "✕" : "☰"}
-        </button>
+        <button className="kl-mobile-btn" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu" style={{ display: "none", background: "none", border: "none", color: PAPER, fontSize: 22, cursor: "pointer" }}>{menuOpen ? "✕" : "≡"}</button>
       </nav>
 
+
       {menuOpen && (
-        <div style={{ position: "fixed", top: 58, left: 0, right: 0, background: "white", borderBottom: "1px solid " + BORDER, zIndex: 99, padding: 16, boxShadow: "0 8px 20px rgba(0,0,0,0.08)" }}>
-          {NAV_LINKS.map(n => (
-            <a key={n.label} href={n.href} onClick={() => setMenuOpen(false)} style={{ display: "block", color: TEXT, fontSize: 15, textDecoration: "none", padding: "10px 0", borderBottom: "1px solid " + BORDER }}>{n.label}</a>
-          ))}
-          <button onClick={() => { setMenuOpen(false); document.getElementById("waitlist-form")?.scrollIntoView({ behavior: "smooth" }); }} style={{ width: "100%", marginTop: 14, background: GREEN, color: "white", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-            Join Waitlist →
-          </button>
+        <div style={{ position: "fixed", top: 64, left: 0, right: 0, background: SURFACE, borderBottom: "1px solid " + LINE, zIndex: 99, padding: 20 }}>
+          {NAV.map((n) => <a key={n.label} href={n.href} onClick={() => setMenuOpen(false)} style={{ display: "block", color: PAPER, fontSize: 15, textDecoration: "none", padding: "12px 0", borderBottom: "1px solid " + LINE }}>{n.label}</a>)}
         </div>
       )}
 
-      {/* HERO */}
-      <section id="home" className="kasapp-section-pad" style={{ background: LIGHT_GREEN_BG, padding: "40px 24px 48px" }}>
-        <div className="kasapp-hero-grid" style={{ maxWidth: 1180, margin: "0 auto", display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 40, alignItems: "center" }}>
+
+      {/* HERO SECTION */}
+      <section className="kl-pad" style={{ padding: "80px 24px 88px", maxWidth: 1160, margin: "0 auto" }}>
+        <div className="kl-hero-grid" style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: 48, alignItems: "center" }}>
           <div>
-            <div className="kasapp-hero-badge" style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "white", border: "1px solid " + BORDER, borderRadius: 20, padding: "6px 14px", fontSize: 12, color: TEXT, marginBottom: 20 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: GREEN, display: "inline-block" }} />
-              Built on Kaspa
+            <div style={{ fontFamily: MONO, fontSize: 11.5, color: AMBER, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 20 }}>
+              Kaspa Ambassador Pipeline · Nigeria Mainnet Beta
             </div>
-            <h1 className="kasapp-hero-title" style={{ fontSize: 40, fontWeight: 800, lineHeight: 1.15, margin: "0 0 16px" }}>
-              Money. Fast. Simple.<br />
-              <span style={{ color: GREEN }}>Private. For Everyone.</span>
+            <h1 className="kl-hero-title" style={{ fontFamily: SERIF, fontSize: 52, fontWeight: 600, lineHeight: 1.12, letterSpacing: "-0.01em", margin: "0 0 22px", color: PAPER }}>
+              Kaspa micro-payments<br />as fast as you send<br />a WhatsApp message.
             </h1>
-            <p className="kasapp-hero-p" style={{ color: MUTED, fontSize: 15, lineHeight: 1.7, marginBottom: 26, maxWidth: 460, marginLeft: "auto", marginRight: "auto" }}>
-              Kasapp brings the power of Kaspa (KAS) to your WhatsApp. Send, receive, and use KAS with simple commands — no complicated wallets, no stress.
+            <p style={{ color: DIM, fontSize: 16, lineHeight: 1.75, margin: "0 0 34px", maxWidth: 460 }}>
+              No app downloads. No exchange KYC delays. Text <b>Hi</b> to auto-generate a self-custodial wallet, send KAS to any phone number, and settle daily utility bills in 3 seconds.
             </p>
-            <div className="kasapp-hero-cta" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 24 }}>
-              <button onClick={() => document.getElementById("waitlist-form")?.scrollIntoView({ behavior: "smooth" })} style={{ background: GREEN, color: "white", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 7 }}>
-                <WhatsAppIcon /> Join on WhatsApp
-              </button>
-              <a href="#how-it-works" style={{ background: "white", color: TEXT, border: "1px solid " + BORDER, borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: 7 }}>
-                ▶ How It Works
-              </a>
-            </div>
-            <div className="kasapp-hero-launch-card" style={{ background: "white", border: "1px solid " + BORDER, borderRadius: 14, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, maxWidth: 380 }}>
-              <div style={{ width: 4, height: 32, background: "linear-gradient(180deg, #16A34A, white, #16A34A)", borderRadius: 2, flexShrink: 0 }} />
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 13 }}>Launching in Nigeria First</div>
-                <div style={{ color: MUTED, fontSize: 11 }}>Expanding across Africa soon</div>
-              </div>
-              <span style={{ marginLeft: "auto", fontSize: 18 }}>🌍</span>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+              <a href="#waitlist" style={{ background: GREEN, color: INK, borderRadius: 8, padding: "13px 24px", fontSize: 14.5, fontWeight: 600, textDecoration: "none" }}>Join 300-User Pilot</a>
+              <a href={GITHUB} target="_blank" rel="noreferrer" style={{ background: "none", color: DIM, border: "1px solid " + LINE_STRONG, borderRadius: 8, padding: "13px 22px", fontSize: 14, fontWeight: 500, textDecoration: "none", fontFamily: MONO }}>view source</a>
             </div>
           </div>
+          <div className="kl-hero-visual" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
+            <div style={{ opacity: 0.95 }}><BlockDag /></div>
+            <Conversation />
+          </div>
+        </div>
+      </section>
+
+
+      {/* PRODUCT CAPABILITIES */}
+      <section id="product" className="kl-pad" style={{ padding: "0 24px 88px", maxWidth: 1160, margin: "0 auto" }}>
+        <h2 style={{ fontFamily: SERIF, fontSize: 32, fontWeight: 600, color: PAPER, marginBottom: 36 }}>Core Engine Capabilities</h2>
+        <div className="kl-4col" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1, background: LINE, border: "1px solid " + LINE, borderRadius: 10, overflow: "hidden" }}>
+          {CAPABILITIES.map((c, i) => (
+            <div key={i} style={{ background: SURFACE, padding: "26px 22px" }}>
+              <div style={{ fontFamily: SERIF, color: GREEN, fontWeight: 600, fontSize: 18, marginBottom: 12 }}>{c.t}</div>
+              <div style={{ color: DIM, fontSize: 13.5, lineHeight: 1.7 }}>{c.d}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+
+      {/* AMBASSADOR STORY */}
+      <section id="story" className="kl-pad" style={{ padding: "80px 24px", background: SURFACE, borderTop: "1px solid " + LINE, borderBottom: "1px solid " + LINE }}>
+        <div style={{ maxWidth: 1160, margin: "0 auto" }}>
+          <div style={{ fontFamily: MONO, fontSize: 11.5, color: AMBER, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 14 }}>
+            Grassroots Leadership Since 2023
+          </div>
+          <h2 style={{ fontFamily: SERIF, fontSize: 32, fontWeight: 600, color: PAPER, margin: "0 0 20px" }}>
+            Bridging the Onboarding Gap in Africa
+          </h2>
+          <div className="kl-2col-section" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 40 }}>
+            <p style={{ color: DIM, fontSize: 15, lineHeight: 1.8, margin: 0 }}>
+              As Kaspa Ambassador for Nigeria, I have anchored campus tours across UNN, UNEC, FUNAI, and UNIABUJA, and advocated on mainstages like <b>TEDx Enugu</b>. Through hundreds of live workshops, one lesson became clear: users love Kaspa's sub-second speed, but onboarding breaks down when buying micro-amounts requires multi-tier CEX KYC or heavy withdrawal surcharges.
+            </p>
+            <p style={{ color: DIM, fontSize: 15, lineHeight: 1.8, margin: 0 }}>
+              Africa is the world's most active organic market for real-world crypto utility, yet Africans remain an under-served class of Kaspa network participants. Kasapp removes CEX barriers by enabling instant phone-to-phone transfers, OTC voucher cash-ins, and direct bill settlements right inside WhatsApp.
+            </p>
+          </div>
+        </div>
+      </section>
+
+
+      {/* METRICS */}
+      <section id="metrics" className="kl-pad" style={{ padding: "88px 24px", maxWidth: 1160, margin: "0 auto" }}>
+        <h2 style={{ fontFamily: SERIF, fontSize: 32, fontWeight: 600, color: PAPER, marginBottom: 36 }}>Calculated Network Impact</h2>
+        <div className="kl-4col" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+          {[
+            { metric: "300+", label: "Verified Beta Testers", sub: "UNN, UNIABUJA, FUNAI" },
+            { metric: "2,500+", label: "Monthly Tx Volume", sub: "Micro-utilities & P2P sends" },
+            { metric: "< $7", label: "User Acquisition Cost", sub: "vs $50-$150 ad benchmark" },
+            { metric: "100%", label: "Viral Organic Loop", sub: "Auto-provisions recipient wallets" },
+          ].map((m, i) => (
+            <div key={i} style={{ background: SURFACE_2, border: "1px solid " + LINE_STRONG, padding: "24px 20px", borderRadius: 10 }}>
+              <div style={{ fontFamily: MONO, fontSize: 28, color: GREEN, fontWeight: 600, marginBottom: 6 }}>{m.metric}</div>
+              <div style={{ color: PAPER, fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{m.label}</div>
+              <div style={{ color: DIM, fontSize: 12 }}>{m.sub}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+
+      {/* SECURITY */}
+      <section id="security" className="kl-pad" style={{ padding: "80px 24px", background: SURFACE, borderTop: "1px solid " + LINE, borderBottom: "1px solid " + LINE }}>
+        <div style={{ maxWidth: 1160, margin: "0 auto" }}>
+          <div style={{ fontFamily: MONO, fontSize: 11.5, color: AMBER, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 14 }}>
+            Institutional Reserve Safety
+          </div>
+          <h2 style={{ fontFamily: SERIF, fontSize: 32, fontWeight: 600, color: PAPER, margin: "0 0 30px" }}>
+            Exchange-Grade Multi-Sig & Cryptography
+          </h2>
+          <div className="kl-4col" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
+            <div style={{ background: SURFACE_2, padding: "24px", borderRadius: 10, border: "1px solid " + LINE }}>
+              <div style={{ fontFamily: MONO, color: GREEN, fontSize: 14, fontWeight: 600, marginBottom: 10 }}>AES-256-GCM + bcrypt</div>
+              <div style={{ color: DIM, fontSize: 13.5, lineHeight: 1.7 }}>
+                Mnemonics are encrypted at rest with secret server keys. Exporting seeds or updating PINs requires salted <code>bcrypt</code> authentication.
+              </div>
+            </div>
+            <div style={{ background: SURFACE_2, padding: "24px", borderRadius: 10, border: "1px solid " + LINE }}>
+              <div style={{ fontFamily: MONO, color: GREEN, fontSize: 14, fontWeight: 600, marginBottom: 10 }}>2-of-3 Multi-Sig Vault</div>
+              <div style={{ color: DIM, fontSize: 13.5, lineHeight: 1.7 }}>
+                90% of system liquidity is held offline in a Kaspa Multi-Sig Cold Vault. Server hot wallet liquidity is strictly capped at operational float limits.
+              </div>
+            </div>
+            <div style={{ background: SURFACE_2, padding: "24px", borderRadius: 10, border: "1px solid " + LINE }}>
+              <div style={{ fontFamily: MONO, color: GREEN, fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Atomic DB Transactions</div>
+              <div style={{ color: DIM, fontSize: 13.5, lineHeight: 1.7 }}>
+                MongoDB <code>$inc</code> and <code>$gte</code> updates prevent double-spend race conditions from simultaneous WhatsApp webhook bursts.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+
+      {/* LEARN */}
+      <section id="learn" className="kl-pad" style={{ padding: "88px 24px", maxWidth: 1160, margin: "0 auto" }}>
+        <div className="kl-2col-section" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 40, alignItems: "center" }}>
           <div>
-            <WhatsAppMockup activeMsg={activeMsg} small={isMobile} />
+            <div style={{ fontFamily: MONO, fontSize: 11, color: AMBER, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 14 }}>Education Partner</div>
+            <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, color: PAPER, margin: "0 0 16px" }}>
+              Kasapp gets you on the network. Kaspa University teaches you how it works.
+            </h2>
+            <p style={{ color: DIM, fontSize: 15, lineHeight: 1.75, margin: "0 0 24px", maxWidth: 480 }}>
+              Structured courses on Kaspa fundamentals, BlockDAG consensus, and Silverscript smart contracts—complete with on-chain certificates.
+            </p>
+            <a href={KASPA_UNIVERSITY} target="_blank" rel="noreferrer" style={{ color: GREEN, fontSize: 14, fontWeight: 600, textDecoration: "none", fontFamily: MONO }}>kaspa.university ↗</a>
+          </div>
+          <div style={{ background: SURFACE, border: "1px solid " + LINE_STRONG, borderRadius: 10, padding: "22px 24px" }}>
+            {["BlockDAG Consensus & GHOSTDAG", "Sub-second Finality Mechanics", "Smart Contracts & Silverscript"].map((t, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: i < 2 ? "1px solid " + LINE : "none" }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: GREEN, flexShrink: 0 }} />
+                <span style={{ color: DIM, fontSize: 13.5 }}>{t}</span>
+              </div>
+            ))}
           </div>
         </div>
-
-        <div className="kasapp-top-features" style={{ maxWidth: 1180, margin: "32px auto 0", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-          {[
-            { icon: <WhatsAppIcon />, title: "WhatsApp Enabled", desc: "Use Kasapp on WhatsApp just like chatting" },
-            { icon: <BoltIcon />, title: "Instant Transactions", desc: "Powered by Kaspa's blazing-fast network" },
-            { icon: <CoinsIcon />, title: "Low Fees", desc: "Enjoy ultra-low fees on every transaction" },
-            { icon: <ShieldIcon />, title: "Private & Secure", desc: "Your keys, your money, your privacy" },
-          ].map((f, i) => (
-            <div key={i} style={{ background: "white", border: "1px solid " + BORDER, borderRadius: 16, padding: "16px 14px", display: "flex", gap: 12, alignItems: "flex-start" }}>
-              <IconWrap size={38}>{f.icon}</IconWrap>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3 }}>{f.title}</div>
-                <div style={{ color: MUTED, fontSize: 11.5, lineHeight: 1.5 }}>{f.desc}</div>
-              </div>
-            </div>
-          ))}
-        </div>
       </section>
 
-      {/* WHY KASAPP */}
-      <section id="features" className="kasapp-section-pad" style={{ padding: "56px 24px", textAlign: "center" }}>
-        <h2 style={{ fontSize: 26, fontWeight: 800, marginBottom: 8 }}>Why <span style={{ color: GREEN }}>Kasapp</span>?</h2>
-        <p style={{ color: MUTED, fontSize: 14, marginBottom: 36 }}>Built for everyday people. Designed for Africa. Powered by Kaspa.</p>
-        <div className="kasapp-why-grid" style={{ maxWidth: 1180, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
-          {[
-            { icon: <PhoneIcon />, title: "Simple as WhatsApp", desc: "No complex apps. Just chat and transact using easy commands." },
-            { icon: <BoltIcon />, title: "Blazing Fast", desc: "Kaspa is one of the fastest blockchains in the world. Transactions in seconds." },
-            { icon: <CoinsIcon />, title: "Low Cost", desc: "Tiny fees mean you keep more of your money. Perfect for everyday use." },
-            { icon: <ShieldIcon />, title: "Secure & Private", desc: "Built with security and privacy in mind. You're in control of your funds." },
-          ].map((f, i) => (
-            <div key={i} style={{ background: CARD_BG, border: "1px solid " + BORDER, borderRadius: 16, padding: "22px 18px", textAlign: "left" }}>
-              <IconWrap>{f.icon}</IconWrap>
-              <div style={{ fontWeight: 700, fontSize: 14, margin: "12px 0 6px" }}>{f.title}</div>
-              <div style={{ color: MUTED, fontSize: 12, lineHeight: 1.6 }}>{f.desc}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* HOW IT WORKS */}
-      <section id="how-it-works" className="kasapp-section-pad" style={{ padding: "48px 24px", background: LIGHT_GREEN_BG }}>
-        <h2 style={{ textAlign: "center", fontSize: 24, fontWeight: 800, marginBottom: 32 }}>How It Works</h2>
-        <div className="kasapp-how-grid" style={{ maxWidth: 1000, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-          {[
-            { n: "1", title: "Save Kasapp's Number", desc: "Add the Kasapp WhatsApp number to your contacts." },
-            { n: "2", title: "Say Hi", desc: "Send a message to activate your wallet instantly." },
-            { n: "3", title: "Send or Receive", desc: "Use simple commands like /send or /balance." },
-            { n: "4", title: "Enjoy", desc: "Fast, private, low-cost money — anytime, anywhere." },
-          ].map((s, i) => (
-            <div key={i} style={{ background: "white", borderRadius: 16, padding: "20px 14px", textAlign: "center" }}>
-              <div style={{ width: 36, height: 36, borderRadius: "50%", background: GREEN, color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, margin: "0 auto 12px", fontSize: 14 }}>{s.n}</div>
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 5 }}>{s.title}</div>
-              <div style={{ color: MUTED, fontSize: 11.5, lineHeight: 1.5 }}>{s.desc}</div>
-            </div>
-          ))}
-        </div>
-      </section>
 
       {/* WAITLIST */}
-      <section id="waitlist-form" className="kasapp-section-pad" style={{ padding: "56px 24px" }}>
-        <div style={{ maxWidth: 440, margin: "0 auto", textAlign: "center" }}>
-          <h2 style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>Join the Waitlist</h2>
-          <p style={{ color: MUTED, fontSize: 13, marginBottom: 24 }}>Be first to use Kasapp when we launch in Nigeria.</p>
-
-          {waitlistStatus === "success" ? (
-            <div style={{ background: CARD_BG, border: "1px solid " + GREEN + "44", borderRadius: 16, padding: 24 }}>
-              <div style={{ fontSize: 36, marginBottom: 8 }}>🎉</div>
-              <div style={{ fontSize: 12, color: MUTED, marginBottom: 4 }}>Your waitlist number</div>
-              <div style={{ fontSize: 42, fontWeight: 900, color: GREEN }}>#{waitlistNumber}</div>
-              <p style={{ color: MUTED, fontSize: 12, marginTop: 12 }}>We'll message you on WhatsApp when Kasapp launches.</p>
+      <section id="waitlist" className="kl-pad" style={{ padding: "88px 24px", background: SURFACE, borderTop: "1px solid " + LINE }}>
+        <div style={{ maxWidth: 1160, margin: "0 auto" }}>
+          <div className="kl-waitlist-grid" style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 40, alignItems: "center" }}>
+            <div>
+              <h2 style={{ fontFamily: SERIF, fontSize: 32, fontWeight: 600, color: PAPER, margin: "0 0 10px" }}>Join the University Closed Beta</h2>
+              <p style={{ color: DIM, fontSize: 15, margin: 0, maxWidth: 440 }}>Onboarding student developers and campus ambassadors across Nigeria. Reserve your slot below.</p>
             </div>
-          ) : (
-            <div style={{ background: "white", border: "1px solid " + BORDER, borderRadius: 16, padding: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.04)" }}>
-              <input
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && joinWaitlist()}
-                placeholder="e.g. 08012345678"
-                style={{ width: "100%", border: "1px solid " + BORDER, borderRadius: 10, padding: "11px 13px", fontSize: 14, marginBottom: 12, outline: "none", boxSizing: "border-box" }}
-              />
-              {waitlistStatus === "error" && (
-                <div style={{ color: "#DC2626", fontSize: 12, marginBottom: 10 }}>
-                  {waitlistNumber ? "Already on the waitlist. Your number is #" + waitlistNumber : "Something went wrong. Try again."}
+            <div style={{ minWidth: 320 }}>
+              {status === "success" ? (
+                <div style={{ border: "1px solid rgba(62,213,152,0.3)", background: "rgba(62,213,152,0.08)", padding: "18px 22px", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ color: DIM, fontSize: 13 }}>Beta Pilot Queue</span>
+                  <span style={{ fontFamily: MONO, fontSize: 22, color: GREEN, fontWeight: 500 }}>#{number}</span>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 10 }}>
+                  <input value={phone} onChange={(e) => setPhone(e.target.value)} onKeyDown={(e) => e.key === "Enter" && joinWaitlist()} placeholder="08012345678" style={{ flex: 1, background: SURFACE_2, border: "1px solid " + LINE_STRONG, borderRadius: 7, padding: "13px 14px", color: PAPER, fontSize: 14, outline: "none", fontFamily: MONO }} />
+                  <button onClick={joinWaitlist} disabled={status === "loading"} style={{ background: GREEN, color: INK, border: "none", borderRadius: 7, padding: "13px 20px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>{status === "loading" ? "…" : "Request Access"}</button>
                 </div>
               )}
-              <button onClick={joinWaitlist} disabled={waitlistStatus === "loading"} style={{ width: "100%", background: GREEN, color: "white", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-                {waitlistStatus === "loading" ? "Joining..." : "Join Waitlist"}
-              </button>
+              {status === "error" && <div style={{ color: AMBER, fontSize: 12, marginTop: 8 }}>{number ? "Already queued — #" + number : "Something went wrong. Try again."}</div>}
             </div>
-          )}
+          </div>
         </div>
       </section>
 
-      {/* BOTTOM BANNER */}
-      <section style={{ background: DARK_GREEN, padding: "32px 20px" }}>
-        <div className="kasapp-bottom-grid" style={{ maxWidth: 1180, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18 }}>
-          {[
-            { icon: <UsersIcon />, title: "Built on Kaspa", desc: "The fastest PoW network" },
-            { icon: <UsersIcon />, title: "For Everyone", desc: "Designed for the next billion users" },
-            { icon: "🇳🇬", title: "Nigeria First", desc: "Launching in Nigeria, expanding across Africa" },
-            { icon: <GlobeIcon />, title: "Open & Decentralized", desc: "Open source. Community driven." },
-          ].map((b, i) => (
-            <div key={i} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-              <div style={{ width: 40, height: 40, borderRadius: 11, background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
-                {b.icon}
-              </div>
-              <div>
-                <div style={{ color: "white", fontWeight: 700, fontSize: 13, marginBottom: 3 }}>{b.title}</div>
-                <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 11.5, lineHeight: 1.5 }}>{b.desc}</div>
-              </div>
-            </div>
-          ))}
-        </div>
+
+      {/* FAQ */}
+      <section id="faq" className="kl-pad" style={{ padding: "88px 24px", maxWidth: 780, margin: "0 auto" }}>
+        <h2 style={{ fontFamily: SERIF, fontSize: 32, fontWeight: 600, color: PAPER, marginBottom: 36 }}>Frequently Asked Questions</h2>
+        {FAQS.map((f, i) => (
+          <div key={i} style={{ borderTop: "1px solid " + LINE }}>
+            <button onClick={() => setOpenFaq(openFaq === i ? -1 : i)} style={{ width: "100%", background: "none", border: "none", padding: "20px 0", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", textAlign: "left" }}>
+              <span style={{ color: PAPER, fontWeight: 500, fontSize: 15.5 }}>{f.q}</span>
+              <span style={{ fontFamily: MONO, color: DIM_2, fontSize: 18, flexShrink: 0, marginLeft: 16 }}>{openFaq === i ? "−" : "+"}</span>
+            </button>
+            {openFaq === i && <div style={{ color: DIM, fontSize: 14.5, lineHeight: 1.75, paddingBottom: 22, maxWidth: 640 }}>{f.a}</div>}
+          </div>
+        ))}
       </section>
+
 
       {/* FOOTER */}
-      <footer id="contact" className="kasapp-section-pad" style={{ padding: "24px 20px", borderTop: "1px solid " + BORDER, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <KaspaLogo size={22} />
-          <span style={{ fontWeight: 700, fontSize: 12 }}>Kasapp</span>
-          <span style={{ color: MUTED, fontSize: 11 }}>2026 Kasapp. All rights reserved.</span>
+      <footer className="kl-pad" style={{ padding: "28px 24px", borderTop: "1px solid " + LINE, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, maxWidth: 1160, margin: "0 auto" }}>
+        <span style={{ fontFamily: MONO, color: DIM_2, fontSize: 12.5 }}>© 2026 Kasapp — Built on Kaspa Layer-1 by Nwafor Obinna Balor</span>
+        <div style={{ display: "flex", gap: 20 }}>
+          <a href={KASPA_UNIVERSITY} target="_blank" rel="noreferrer" style={{ color: DIM, fontSize: 12.5, textDecoration: "none", fontFamily: MONO }}>kaspa.university</a>
+          <a href={GITHUB} target="_blank" rel="noreferrer" style={{ color: DIM, fontSize: 12.5, textDecoration: "none", fontFamily: MONO }}>github</a>
         </div>
-        <a href={GITHUB} target="_blank" rel="noreferrer" style={{ color: MUTED, fontSize: 12, textDecoration: "none" }}>GitHub</a>
       </footer>
     </div>
   );
