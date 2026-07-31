@@ -221,7 +221,7 @@ if (userState.step === 'AWAITING_EXPORT_PIN') {
       }
 
 
-      // Atomic Balance Deduction on Sender
+      // 1. Atomic Balance Deduction on Sender
       const sender = await UserModel.findOneAndUpdate(
         { phone: senderPhone, balance: { $gte: amount } },
         { $inc: { balance: -amount } },
@@ -234,7 +234,7 @@ if (userState.step === 'AWAITING_EXPORT_PIN') {
       }
 
 
-      // Find or Auto-Provision Recipient & Increment Balance
+      // 2. Find or Auto-Provision Recipient & Increment Balance
       const recipient = await UserModel.findOneAndUpdate(
         { phone: normalizedTargetPhone },
         { $inc: { balance: amount } },
@@ -242,8 +242,8 @@ if (userState.step === 'AWAITING_EXPORT_PIN') {
       );
 
 
-      // Dispatch Outbound Notification to Recipient
-      const notificationText =
+      // 3. 🔔 DISPATCH OUTBOUND NOTIFICATION TO RECIPIENT (Asynchronous)
+      const recipientNotificationText =
         `🎉 *You received KAS!*\n\n` +
         `• *Amount:* ${amount} KAS\n` +
         `• *From:* ${senderPhone}\n` +
@@ -251,11 +251,19 @@ if (userState.step === 'AWAITING_EXPORT_PIN') {
         `Type */balance* to view your total wallet funds or */help* to spend it on utility bills!`;
 
 
-      sendWhatsAppNotification(normalizedTargetPhone, notificationText);
+      sendWhatsAppNotification(normalizedTargetPhone, recipientNotificationText).catch((err) => {
+        console.error('[RECIPIENT_NOTIFICATION_ERROR]', err);
+      });
 
 
-      return `✅ *Transfer Successful!*\n\nSent *${amount} KAS* to *${normalizedTargetPhone}*.\nYour new balance is *${sender.balance.toFixed(4)} KAS*.`;
+      // 4. 💬 RETURN RECEIPT TO SENDER (Synchronous Webhook Response)
+      return (
+        `✅ *Transfer Successful!*\n\n` +
+        `Sent *${amount} KAS* to *${normalizedTargetPhone}*.\n` +
+        `Your new balance is *${sender.balance.toFixed(4)} KAS*.`
+      );
     }
+
 
 
     // --- /redeem [code] ---

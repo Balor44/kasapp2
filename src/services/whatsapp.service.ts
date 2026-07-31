@@ -45,32 +45,43 @@ export const WhatsAppService = {
  */
 export async function sendWhatsAppNotification(toPhone: string, message: string): Promise<boolean> {
   try {
-    if (!PHONE_NUMBER_ID || !WHATSAPP_TOKEN) {
-      console.error('[WHATSAPP_NOTIFICATION_ERROR] Missing PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN in .env');
+    const token = process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
+    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+
+    if (!phoneId || !token) {
+      console.error('[WHATSAPP_NOTIFICATION_ERROR] Missing WHATSAPP_PHONE_NUMBER_ID or token in .env');
       return false;
     }
 
 
-    await axios.post(
-      `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`,
+    const url = `https://graph.facebook.com/v22.0/${phoneId}/messages`;
+
+
+    const response = await axios.post(
+      url,
       {
         messaging_product: 'whatsapp',
         to: toPhone,
         type: 'text',
-        text: { body: message },
+        text: { body: message }
       },
       {
         headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       }
     );
 
 
+    console.log('[WHATSAPP_NOTIFICATION_SUCCESS] Dispatched to:', toPhone, response.data);
     return true;
   } catch (error: any) {
-    console.error('Failed to dispatch recipient notification:', error?.response?.data || error.message);
+    console.error(
+      '[WHATSAPP_NOTIFICATION_FAILED]',
+      error?.response?.data || error.message
+    );
     return false;
   }
 }
