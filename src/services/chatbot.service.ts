@@ -120,9 +120,48 @@ if (userState.step === 'AWAITING_EXPORT_PIN') {
     }
 
 
-    // --- /setpin [4-6 digits] ---
+   // --- /setpin [4-6 digits] OR /setpin [old_pin] [new_pin] ---
     if (msg.startsWith('/setpin')) {
       const parts = rawMsg.split(' ');
+
+
+      if (!user) {
+        return "You'll need a wallet first — just say Hi and I'll get you set up.";
+      }
+
+
+      // CASE 1: User ALREADY HAS a PIN (Requires Old PIN verification)
+      if (user.pin) {
+        const oldPinInput = parts[1];
+        const newPinInput = parts[2];
+
+
+        if (!oldPinInput || !newPinInput || !/^\d{4,6}$/.test(oldPinInput) || !/^\d{4,6}$/.test(newPinInput)) {
+          return (
+            '🔒 *Update Security PIN*\n\n' +
+            'Since you already have a PIN set, you must provide your current PIN first.\n\n' +
+            'Usage: */setpin [old_pin] [new_pin]*\n' +
+            'Example: */setpin 1234 9999*'
+          );
+        }
+
+
+        const isOldPinCorrect = await bcrypt.compare(oldPinInput, user.pin);
+        if (!isOldPinCorrect) {
+          return '❌ *Incorrect Current PIN.*\n\nPIN update rejected for your protection.';
+        }
+
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedNewPin = await bcrypt.hash(newPinInput, salt);
+
+
+        await UserModel.updateOne({ phone: senderPhone }, { pin: hashedNewPin });
+        return '🔒 *Security PIN Updated Successfully!*';
+      }
+
+
+      // CASE 2: FIRST-TIME PIN CREATION
       const pinInput = parts[1];
 
 
@@ -136,7 +175,7 @@ if (userState.step === 'AWAITING_EXPORT_PIN') {
 
 
       await UserModel.updateOne({ phone: senderPhone }, { pin: hashedPin });
-      return '🔒 *Security PIN Saved!*\n\nYour PIN is now active and required when revealing your seed phrase.';
+      return '🔒 *Security PIN Saved!*\n\nYour PIN is now active and required when revealing your recovery phrase.';
     }
 
 
