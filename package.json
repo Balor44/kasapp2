@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon --exec ts-node src/server.ts",
-    "build": "vite build client && tsc",
+    "build": "tsc && vite build client",
     "build:client": "vite build",
     "start": "node dist/server.js"
   },

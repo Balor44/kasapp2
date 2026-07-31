@@ -5,6 +5,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 
 import express from 'express';
+import fs from 'fs';
 import cors from 'cors';
 import path from 'path';
 import waitlistRoutes from './routes/waitlist.routes';
@@ -38,9 +39,13 @@ app.get('/health', (_req: any, res: any) => {
 // FRONTEND STATIC SERVING
 // --------------------------------------------------------------------------
 
-// Point to the dedicated frontend directory
-const distPath = path.resolve(process.cwd(), 'dist-client');
+// Determine client static directory (check both dist-client and dist)
+let distPath = path.resolve(process.cwd(), 'dist-client');
+if (!fs.existsSync(path.join(distPath, 'index.html'))) {
+  distPath = path.resolve(process.cwd(), 'dist');
+}
 
+// Serve static assets
 app.use(express.static(distPath));
 
 // Express 5 catch-all fallback
@@ -48,7 +53,13 @@ app.get(/(.*)/, (req: any, res: any) => {
   if (req.path.startsWith('/api')) {
     return res.status(404).json({ error: 'API route not found' });
   }
-  res.sendFile(path.join(distPath, 'index.html'));
+  
+  const indexPath = path.join(distPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(500).send("Build error: index.html was not found in static directory.");
+  }
 });
 
 
