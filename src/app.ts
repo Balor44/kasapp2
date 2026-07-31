@@ -36,16 +36,24 @@ app.get('/health', (_req: any, res: any) => {
 
 
 // --------------------------------------------------------------------------
-// FRONTEND STATIC SERVING
+// FRONTEND STATIC SERVING (MULTI-PATH GUARD)
 // --------------------------------------------------------------------------
 
-// Determine client static directory (check both dist-client and dist)
-let distPath = path.resolve(process.cwd(), 'dist-client');
-if (!fs.existsSync(path.join(distPath, 'index.html'))) {
-  distPath = path.resolve(process.cwd(), 'dist');
-}
+// List potential candidate directories where index.html might land
+const candidates = [
+  path.resolve(process.cwd(), 'dist-client'),
+  path.resolve(process.cwd(), 'client', 'dist-client'),
+  path.resolve(process.cwd(), 'dist'),
+  path.join(__dirname, '../dist-client'),
+  path.join(__dirname, '../dist'),
+];
 
-// Serve static assets
+// Find the first directory that actually contains index.html
+let distPath = candidates.find((dir) => fs.existsSync(path.join(dir, 'index.html'))) || candidates[0];
+
+console.log(`[Kasapp Static] Serving frontend assets from: ${distPath}`);
+
+// Serve static assets from resolved directory
 app.use(express.static(distPath));
 
 // Express 5 catch-all fallback
@@ -53,13 +61,22 @@ app.get(/(.*)/, (req: any, res: any) => {
   if (req.path.startsWith('/api')) {
     return res.status(404).json({ error: 'API route not found' });
   }
-  
+
+  // Re-verify in case build was updated dynamically
   const indexPath = path.join(distPath, 'index.html');
   if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
-  } else {
-    res.status(500).send("Build error: index.html was not found in static directory.");
+    return res.sendFile(indexPath);
   }
+
+  // Fallback search across candidates if distPath was moved
+  for (const cand of candidates) {
+    const fallbackIndex = path.join(cand, 'index.html');
+    if (fs.existsSync(fallbackIndex)) {
+      return res.sendFile(fallbackIndex);
+    }
+  }
+
+  res.status(500).send(`Build error: index.html was not found. Checked: ${candidates.join(', ')}`);
 });
 
 

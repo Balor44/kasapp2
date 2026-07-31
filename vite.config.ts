@@ -9,8 +9,8 @@ export default defineConfig(({ mode }) => {
     root: 'client',
     plugins: [react()],
     build: {
-      // Build directly into /app/dist-client
-      outDir: path.resolve(__dirname, 'dist-client'),
+      // Relative to root ('client'), '../dist-client' outputs to '/app/dist-client'
+      outDir: '../dist-client',
       emptyOutDir: true,
     },
     server: {
