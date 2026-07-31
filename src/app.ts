@@ -35,20 +35,16 @@ app.get('/health', (_req: any, res: any) => {
 
 
 // --------------------------------------------------------------------------
-// FRONTEND STATIC SERVING (EXPRESS 5 COMPATIBLE)
+// FRONTEND STATIC SERVING
 // --------------------------------------------------------------------------
 
+// Point to the dedicated frontend directory
+const distPath = path.resolve(process.cwd(), 'dist-client');
 
-const distPath = path.join(__dirname, '../dist');
-
-
-// Serve compiled JS, CSS, and asset files from the dist folder
 app.use(express.static(distPath));
 
-
-// Catch-all fallback route using RegExp wildcard for Express 5 compatibility
+// Express 5 catch-all fallback
 app.get(/(.*)/, (req: any, res: any) => {
-  // Pass non-existent /api calls to standard 404 instead of returning index.html
   if (req.path.startsWith('/api')) {
     return res.status(404).json({ error: 'API route not found' });
   }
