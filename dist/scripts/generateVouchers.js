@@ -57,7 +57,7 @@ async function main() {
         console.error('Example: ts-node src/scripts/generateVouchers.ts 5 100');
         process.exit(1);
     }
-    await mongoose_1.default.connect(uri);
+    await mongoose_1.default.connect(uri, { dbName: 'kasapp2' });
     console.log(`Generating ${count} voucher(s) worth ${amount} KAS each...`);
     const codes = await generateVouchers(amount, count);
     const filename = `vouchers-${amount}KAS-${Date.now()}.csv`;

@@ -27,9 +27,10 @@ exports.UserModel = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
 const UserSchema = new mongoose_1.Schema({
     phone: { type: String, required: true, unique: true },
-    wallet: { type: String, required: true, unique: true },
-    mnemonic: { type: String },
+    walletAddress: { type: String },
+    wallet: { type: String },
+    mnemonic: { type: String, required: true },
     balance: { type: Number, default: 0 },
-    createdAt: { type: Date, default: Date.now },
+    pin: { type: String, default: null }
 });
 exports.UserModel = mongoose_1.default.model('User', UserSchema);

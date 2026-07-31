@@ -7,7 +7,7 @@
     "dev": "nodemon --exec ts-node src/server.ts",
     "build": "npx tsc && vite build client",
     "build:client": "vite build",
-    "start": "node dist/server.js"
+    "start": "node dist/index.js"
   },
   "repository": {
     "type": "git",
