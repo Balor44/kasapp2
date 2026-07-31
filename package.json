@@ -30,6 +30,7 @@
     "express": "^5.2.1",
     "isomorphic-ws": "^5.0.0",
     "kaspa-wasm": "file:vendor/kaspa-wasm-2.0.1.tgz",
+    "lucide-react": "^1.28.0",
     "mongoose": "^9.7.4",
     "node-cron": "^4.6.0",
     "react": "^19.2.7",
