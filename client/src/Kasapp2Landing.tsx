@@ -40,7 +40,7 @@ export default function KasappLanding() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-inter relative overflow-hidden selection:bg-emerald-900 selection:text-emerald-100">
       
-      {/* BACKGROUND DEPTHTEXTURE (GRID & GLOW) */}
+      {/* BACKGROUND DEPTH & GRID */}
       <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_center,rgba(16,185,129,0.08)_0%,transparent_60%)]"></div>
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#18181b15_1px,transparent_1px),linear-gradient(to_bottom,#18181b15_1px,transparent_1px)] bg-[size:4rem_4rem]"></div>
@@ -51,7 +51,6 @@ export default function KasappLanding() {
       <header className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800/60">
         <nav className="container mx-auto px-6 py-4 flex items-center justify-between relative z-10">
           
-          {/* Logo */}
           <div className="flex items-center gap-3">
             <img src="/logo.svg" alt="Kasapp Logo" className="h-8 w-auto object-contain" onError={(e) => (e.currentTarget.style.display = 'none')} />
             <div className="flex flex-col leading-none">
@@ -60,20 +59,19 @@ export default function KasappLanding() {
           </div>
 
 
-          {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-8 font-medium text-sm text-zinc-400">
             <a href="#features" className="hover:text-emerald-400 transition-colors">Benefits</a>
             <a href="#simulation" className="hover:text-emerald-400 transition-colors">BlockDAG</a>
             
-            {/* KASPA UNIVERSITY / EDUCATION LINK */}
+            {/* KASPA UNIVERSITY CORRECT LINK */}
             <a 
-              href="https://kaspa.org/learn/" 
+              href="https://kaspa.university" 
               target="_blank" 
               rel="noopener noreferrer" 
               className="flex items-center gap-1.5 text-zinc-300 hover:text-emerald-400 transition-colors font-medium bg-zinc-900/80 border border-zinc-800 px-3.5 py-1.5 rounded-full"
             >
               <GraduationCap size={16} className="text-emerald-400" />
-              <span>Learn Kaspa</span>
+              <span>Kaspa University</span>
               <ExternalLink size={12} className="text-zinc-500" />
             </a>
 
@@ -84,25 +82,23 @@ export default function KasappLanding() {
           </div>
 
 
-          {/* Mobile Toggle */}
           <button className="md:hidden text-zinc-300" onClick={() => setMenuOpen(!menuOpen)}>
             {menuOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
         </nav>
 
 
-        {/* Mobile Dropdown */}
         {menuOpen && (
           <div className="md:hidden absolute top-full left-0 w-full bg-zinc-900 border-b border-zinc-800 flex flex-col px-6 py-4 shadow-xl z-50">
             <a href="#features" onClick={() => setMenuOpen(false)} className="py-3 text-zinc-300 border-b border-zinc-800/50">Benefits</a>
             <a href="#simulation" onClick={() => setMenuOpen(false)} className="py-3 text-zinc-300 border-b border-zinc-800/50">BlockDAG Tech</a>
             <a 
-              href="https://kaspa.org/learn/" 
+              href="https://kaspa.university" 
               target="_blank" 
               rel="noopener noreferrer" 
               className="py-3 text-emerald-400 font-medium flex items-center gap-2 border-b border-zinc-800/50"
             >
-              <GraduationCap size={18} /> Learn Kaspa (Kaspa Org)
+              <GraduationCap size={18} /> Kaspa University
             </a>
             <a href="#waitlist" onClick={() => setMenuOpen(false)} className="py-3 text-emerald-400 font-semibold">Join Waitlist</a>
           </div>
@@ -114,7 +110,7 @@ export default function KasappLanding() {
       <main className="relative z-10">
         
         {/* HERO SECTION */}
-        <section id="waitlist" className="relative pt-16 pb-24 md:pt-28 md:pb-36 border-b border-zinc-900/50">
+        <section id="waitlist" className="relative pt-16 pb-20 md:pt-28 md:pb-28 border-b border-zinc-900/50">
           <div className="container mx-auto px-6 relative z-10 flex flex-col items-center text-center max-w-3xl">
             
             <div className="inline-block px-4 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/5 text-emerald-400 font-plex text-xs font-semibold uppercase tracking-wider mb-8">
@@ -131,7 +127,6 @@ export default function KasappLanding() {
             </p>
 
 
-            {/* Waitlist Form */}
             <div className="w-full max-w-md bg-zinc-900/70 p-2 rounded-2xl border border-zinc-800 backdrop-blur-md shadow-2xl">
               <div className="flex relative">
                 <input
@@ -154,7 +149,6 @@ export default function KasappLanding() {
             </div>
 
 
-            {/* Feedback Messages */}
             {status === "success" && (
               <div className="mt-6 inline-flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 px-6 py-3 rounded-full text-emerald-400 font-medium">
                 You're on the list! Position #{number}
@@ -170,24 +164,21 @@ export default function KasappLanding() {
         </section>
 
 
-        {/* RESTORED BLOCKDAG SIMULATION SECTION */}
-        <section id="simulation" className="py-20 bg-zinc-950/80 border-b border-zinc-900 relative">
+        {/* KASPA.ORG STYLE CANVAS SIMULATION */}
+        <section id="simulation" className="py-20 bg-zinc-950/90 border-b border-zinc-900 relative">
           <div className="container mx-auto px-6 max-w-5xl">
             <div className="text-center mb-10">
               <span className="text-emerald-500 font-plex text-xs uppercase tracking-widest font-semibold">Under the Hood</span>
               <h2 className="font-fraunces text-3xl md:text-4xl font-semibold text-zinc-100 mt-2">
-                Powered by Kaspa's BlockDAG
+                Real-Time BlockDAG Visualization
               </h2>
               <p className="text-zinc-400 text-sm max-w-xl mx-auto mt-3">
-                Unlike traditional single-chain blockchains, Kaspa processes blocks in parallel with 1-second confirmations.
+                Watch parallel block formation in real time—enabling sub-second finality and zero-friction micro-transactions.
               </p>
             </div>
 
 
-            {/* Simulation Widget Card */}
-            <div className="bg-zinc-900/60 border border-zinc-800 rounded-3xl p-6 md:p-10 shadow-2xl relative overflow-hidden">
-              <BlockDAGWatermark />
-            </div>
+            <BlockDAGWatermark />
           </div>
         </section>
 
@@ -239,26 +230,26 @@ export default function KasappLanding() {
         </section>
 
 
-        {/* KASPA LEARNING HUB PROMO */}
+        {/* KASPA UNIVERSITY PROMO SECTION */}
         <section className="py-16 bg-emerald-950/20 border-y border-emerald-900/30">
           <div className="container mx-auto px-6 max-w-4xl flex flex-col md:flex-row items-center justify-between gap-8 text-center md:text-left">
             <div>
               <div className="flex items-center justify-center md:justify-start gap-2 text-emerald-400 font-semibold mb-2">
                 <GraduationCap size={20} />
-                <span>Kaspa Education & Research</span>
+                <span>Kaspa University Educational Partner</span>
               </div>
-              <h3 className="font-fraunces text-2xl font-bold text-zinc-100">New to Kaspa & BlockDAG technology?</h3>
+              <h3 className="font-fraunces text-2xl font-bold text-zinc-100">Master the GHOSTDAG Protocol</h3>
               <p className="text-zinc-400 text-sm mt-1 max-w-xl">
-                Explore comprehensive guides, DAG consensus whitepapers, and ecosystem hubs to learn how Kaspa powers global micro-payments.
+                Dive deep into Kaspa's revolutionary technology with interactive courses, technical documentation, and community learning modules.
               </p>
             </div>
             <a 
-              href="https://kaspa.org/learn/" 
+              href="https://kaspa.university" 
               target="_blank" 
               rel="noopener noreferrer" 
               className="bg-emerald-500 text-zinc-950 font-semibold px-6 py-3.5 rounded-xl flex items-center gap-2 hover:bg-emerald-400 transition-colors shrink-0"
             >
-              <span>Explore Kaspa Hub</span>
+              <span>Explore Kaspa University</span>
               <ExternalLink size={16} />
             </a>
           </div>

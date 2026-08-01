@@ -1,88 +1,140 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useRef } from 'react';
+
+
+interface Node {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+  pulse: number;
+  connections: number[];
+}
 
 
 export const BlockDAGWatermark: React.FC = () => {
-  const { nodes, edges } = useMemo(() => {
-    const nodes: { id: number; x: number; y: number }[] = [];
-    const edges: { x1: number; y1: number; x2: number; y2: number }[] = [];
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
 
-    const rows = 10;
-    const cols = 18;
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
 
-    for (let i = 0; i < rows; i++) {
-      for (let j = 0; j < cols; j++) {
-        const bx = (j / (cols - 1)) * 100;
-        const by = (i / (rows - 1)) * 100;
-        const dx = bx + (Math.sin(i + j) * 3);
-        const dy = by + (Math.cos(i * j) * 3);
-        nodes.push({ id: i * cols + j, x: dx, y: dy });
-      }
+    let animationFrameId: number;
+    let width = (canvas.width = canvas.parentElement?.clientWidth || 800);
+    let height = (canvas.height = canvas.parentElement?.clientHeight || 400);
+
+
+    const handleResize = () => {
+      if (!canvas || !canvas.parentElement) return;
+      width = canvas.width = canvas.parentElement.clientWidth;
+      height = canvas.height = canvas.parentElement.clientHeight;
+    };
+
+
+    window.addEventListener('resize', handleResize);
+
+
+    // Initialize DAG Nodes moving left-to-right (BlockDAG flow)
+    const nodeCount = Math.floor(width / 25);
+    const nodes: Node[] = [];
+
+
+    for (let i = 0; i < nodeCount; i++) {
+      nodes.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: 0.2 + Math.random() * 0.5, // Constant forward flow
+        vy: (Math.random() - 0.5) * 0.2,
+        radius: 2 + Math.random() * 2,
+        pulse: Math.random() * Math.PI * 2,
+        connections: [],
+      });
     }
 
 
-    for (let i = 0; i < rows; i++) {
-      for (let j = 0; j < cols - 1; j++) {
-        const u = nodes[i * cols + j];
-        const targetOffsets = [-2, -1, 0, 1, 2];
-        targetOffsets.forEach(offset => {
-          const targetRow = i + offset;
-          if (targetRow >= 0 && targetRow < rows && Math.random() > 0.45) {
-            const v = nodes[targetRow * cols + j + 1];
-            edges.push({ x1: u.x, y1: u.y, x2: v.x, y2: v.y });
+    const render = () => {
+      ctx.clearRect(0, 0, width, height);
+
+
+      // Update positions
+      nodes.forEach((node) => {
+        node.x += node.vx;
+        node.y += node.vy;
+        node.pulse += 0.03;
+
+
+        // Wrap around seamlessly
+        if (node.x > width) node.x = 0;
+        if (node.y < 0) node.y = height;
+        if (node.y > height) node.y = 0;
+      });
+
+
+      // Draw DAG Edges (Connect nodes within distance threshold to emulate GHOSTDAG)
+      ctx.lineWidth = 0.8;
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const dx = nodes[i].x - nodes[j].x;
+          const dy = nodes[i].y - nodes[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+
+          if (dist < 110) {
+            const alpha = (1 - dist / 110) * 0.35;
+            ctx.strokeStyle = `rgba(16, 185, 129, ${alpha})`; // Emerald DAG lines
+            ctx.beginPath();
+            ctx.moveTo(nodes[i].x, nodes[i].y);
+            ctx.lineTo(nodes[j].x, nodes[j].y);
+            ctx.stroke();
           }
-        });
+        }
       }
-    }
-    return { nodes, edges };
+
+
+      // Draw DAG Block Nodes
+      nodes.forEach((node) => {
+        const glow = Math.sin(node.pulse) * 0.5 + 0.5;
+        ctx.fillStyle = `rgba(52, 211, 153, ${0.4 + glow * 0.6})`;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+
+        // Node Glow Effect
+        ctx.shadowColor = '#10b981';
+        ctx.shadowBlur = 8 * glow;
+      });
+
+
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+
+    render();
+
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      cancelAnimationFrame(animationFrameId);
+    };
   }, []);
 
 
   return (
-    <div className="relative w-full h-full min-h-[300px] flex items-center justify-center overflow-hidden">
-      <svg 
-        className="absolute inset-0 w-full h-full text-emerald-500/20 pointer-events-none" 
-        viewBox="0 0 100 100" 
-        preserveAspectRatio="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <g stroke="currentColor" strokeWidth="0.12">
-          {edges.map((e, idx) => (
-            <line key={`e-${idx}`} x1={`${e.x1}%`} y1={`${e.y1}%`} x2={`${e.x2}%`} y2={`${e.y2}%`} />
-          ))}
-        </g>
-        <g fill="currentColor">
-          {nodes.map(n => (
-            <circle key={`n-${n.id}`} cx={`${n.x}%`} cy={`${n.y}%`} r="0.4" className="text-emerald-400" />
-          ))}
-        </g>
-      </svg>
-
-
-      {/* Simulated Live BlockDAG DAG Visual Element */}
-      <div className="relative z-10 bg-zinc-900/90 border border-emerald-500/30 p-6 rounded-2xl backdrop-blur-md shadow-2xl max-w-sm w-full mx-auto text-center">
-        <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-            </span>
-            <span className="font-plex text-xs text-emerald-400 font-semibold uppercase tracking-wider">BlockDAG Live Visual</span>
-          </div>
-          <span className="font-plex text-[10px] text-zinc-500">GHOSTDAG Consensus</span>
+    <div className="relative w-full h-[380px] rounded-2xl overflow-hidden bg-zinc-950/90 border border-emerald-500/20 shadow-2xl flex items-center justify-center">
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
+      <div className="relative z-10 pointer-events-none text-center px-4">
+        <div className="inline-flex items-center gap-2 bg-zinc-900/90 border border-emerald-500/30 px-4 py-1.5 rounded-full backdrop-blur-md mb-2 shadow-lg">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <span className="font-plex text-xs text-emerald-400 font-medium tracking-wide">Live BlockDAG Consensus Flow</span>
         </div>
-
-
-        <div className="grid grid-cols-4 gap-2 my-4">
-          {[1, 2, 3, 4, 5, 6, 7, 8].map((block) => (
-            <div key={block} className="bg-emerald-950/60 border border-emerald-500/40 p-2 rounded-lg flex flex-col items-center justify-center gap-1 animate-pulse" style={{ animationDelay: `${block * 200}ms` }}>
-              <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
-              <span className="font-plex text-[9px] text-emerald-300">#B-{10420 + block}</span>
-            </div>
-          ))}
-        </div>
-        <p className="text-xs text-zinc-400 font-medium">Parallel block processing in real-time</p>
       </div>
     </div>
   );
