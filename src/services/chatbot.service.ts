@@ -8,11 +8,84 @@ import { normalizePhone } from '../utils/phone';
 import { normalizeVoucherCode } from '../utils/voucherCode';
 import { handleRecurringMenu } from '../controllers/subscription.controller';
 import { getUserState, saveUserState } from './userState.service';
+import { parseWhatsAppMessage, IntentResponse } from './aiParser';
 import { sendWhatsAppNotification } from './whatsapp.service';
-import { decryptMnemonic } from '../utils/crypto.utils'; // Ensure correct path for your AES decrypt helper
+import { decryptMnemonic } from '../utils/crypto.utils';
 
 
 export const ChatbotService = {
+  /**
+   * Primary entry point for natural language messages from WhatsApp.
+   * Passes raw text to Gemini AI parser, constructs synthetic commands,
+   * and routes them into the existing parse() engine.
+   */
+  async processIncomingMessage(fromPhone: string, rawMessageText: string): Promise<string> {
+    try {
+      // 1. Pass natural text through AI Intent Parser
+      const parsed: IntentResponse = await parseWhatsAppMessage(rawMessageText);
+      console.log(`[Chatbot AI] Parsed intent from "${rawMessageText}":`, parsed);
+
+
+      // 2. Delegate to corresponding domain handler based on Intent
+      switch (parsed.intent) {
+        case 'BUY_AIRTIME':
+          if (!parsed.recipient || !parsed.amount) {
+            return parsed.conversationalReply || "Please specify the network, amount, and phone number.\n\n*Example:* 'Buy 1000 MTN airtime for 08012345678'";
+          }
+          const provider = parsed.provider || 'MTN';
+          return await this.parse(fromPhone, `/airtime ${provider} ${parsed.recipient} ${parsed.amount}`);
+
+
+        case 'SEND_KAS':
+          if (!parsed.recipient || !parsed.amount) {
+            return parsed.conversationalReply || "Who would you like to send KAS to?\n\n*Example:* 'Send 10 KAS to 08012345678'";
+          }
+          return await this.parse(fromPhone, `/send ${parsed.recipient} ${parsed.amount}`);
+
+
+        case 'BALANCE':
+          return await this.parse(fromPhone, '/balance');
+
+
+        case 'REDEEM_VOUCHER':
+          if (!parsed.voucherCode) {
+            return parsed.conversationalReply || "Please provide a valid voucher code.\n\n*Example:* 'Redeem KASP-9482-1049'";
+          }
+          return await this.parse(fromPhone, `/redeem ${parsed.voucherCode}`);
+
+
+        case 'PAY_ELECTRICITY':
+          if (!parsed.recipient || !parsed.amount) {
+            return parsed.conversationalReply || "Please specify provider, meter number, and amount.\n\n*Example:* 'Pay 5000 IKEDC electricity for meter 1234567890'";
+          }
+          const elecProvider = parsed.provider || 'IKEDC';
+          return await this.parse(fromPhone, `/electricity ${elecProvider} ${parsed.recipient} ${parsed.amount}`);
+
+
+        case 'HELP':
+          return await this.parse(fromPhone, '/help');
+
+
+        case 'UNKNOWN':
+        default:
+          // If message starts with '/', execute directly as slash command
+          if (rawMessageText.trim().startsWith('/')) {
+            return await this.parse(fromPhone, rawMessageText);
+          }
+          
+          // Use Gemini's friendly conversational reply if available. 
+          // If Gemini also failed (UNKNOWN / confidence 0), show the default help text.
+          return parsed.conversationalReply || 
+            "Welcome to Kasapp! ⚡\n\nYou can chat with me naturally. Try asking:\n• *'Buy 1k MTN airtime for 08012345678'*\n• *'Check my balance'*\n• *'Send 50 KAS to 08012345678'*";
+      }
+    } catch (error) {
+      console.error(`[Chatbot AI Error] Processing message for ${fromPhone}:`, error);
+      // Fallback to direct execution if AI service fails entirely
+      return await this.parse(fromPhone, rawMessageText);
+    }
+  },
+
+
   parse: async (phone: string, message: string): Promise<string> => {
     const rawMsg = message.trim();
     const msg = rawMsg.toLowerCase();
@@ -51,51 +124,51 @@ export const ChatbotService = {
 
 
     // -------------------------------------------------------------
-// 2. STATE MACHINE HANDLER: PIN CHECK FOR SEED EXPORT
-// -------------------------------------------------------------
-if (userState.step === 'AWAITING_EXPORT_PIN') {
-  if (!user || !user.pin) {
-    userState.step = '';
-    await saveUserState(senderPhone, userState);
-    return 'Session expired or security PIN not set.';
-  }
+    // 2. STATE MACHINE HANDLER: PIN CHECK FOR SEED EXPORT
+    // -------------------------------------------------------------
+    if (userState.step === 'AWAITING_EXPORT_PIN') {
+      if (!user || !user.pin) {
+        userState.step = '';
+        await saveUserState(senderPhone, userState);
+        return 'Session expired or security PIN not set.';
+      }
 
 
-  const isMatch = await bcrypt.compare(rawMsg, user.pin);
-  
-  if (!isMatch) {
-    // Keep state cleared on failure so they have to type /export again
-    userState.step = '';
-    await saveUserState(senderPhone, userState);
-    return '❌ *Incorrect Security PIN.*\n\nExport request cancelled for your protection.';
-  }
+      const isMatch = await bcrypt.compare(rawMsg, user.pin);
+     
+      if (!isMatch) {
+        userState.step = '';
+        await saveUserState(senderPhone, userState);
+        return '❌ *Incorrect Security PIN.*\n\nExport request cancelled for your protection.';
+      }
 
 
-  try {
-    const rawMnemonic = decryptMnemonic(user.mnemonic, process.env.ENCRYPTION_KEY || '');
-    
-    // Clear state after successful decryption
-    userState.step = '';
-    await saveUserState(senderPhone, userState);
+      try {
+        const rawMnemonic = decryptMnemonic(user.mnemonic, process.env.ENCRYPTION_KEY || '');
+       
+        userState.step = '';
+        await saveUserState(senderPhone, userState);
 
 
-    return [
-      `🔑 *SECRET RECOVERY PHRASE* 🔑\n`,
-      `\`\`\``,
-      `${rawMnemonic}`,
-      `\`\`\`\n`,
-      `⚠️ *CRITICAL SECURITY NOTICE:*`,
-      `• Never share these words with anyone.`,
-      `• Anyone with this phrase controls your entire KAS balance.`,
-      `• Write it down on paper and delete this chat message!`
-    ].join('\n');
-  } catch (err: any) {
-    console.error('[DECRYPT_ERROR]', err.message);
-    userState.step = '';
-    await saveUserState(senderPhone, userState);
-    return '❌ *Decryption Failed:* System encryption key missing or corrupted key format.';
-  }
-}
+        return [
+          `🔑 *SECRET RECOVERY PHRASE* 🔑\n`,
+          `\`\`\``,
+          `${rawMnemonic}`,
+          `\`\`\`\n`,
+          `⚠️ *CRITICAL SECURITY NOTICE:*`,
+          `• Never share these words with anyone.`,
+          `• Anyone with this phrase controls your entire KAS balance.`,
+          `• Write it down on paper and delete this chat message!`
+        ].join('\n');
+      } catch (err: any) {
+        console.error('[DECRYPT_ERROR]', err.message);
+        userState.step = '';
+        await saveUserState(senderPhone, userState);
+        return '❌ *Decryption Failed:* System encryption key missing or corrupted key format.';
+      }
+    }
+
+
     // -------------------------------------------------------------
     // 3. STANDARD COMMANDS
     // -------------------------------------------------------------
@@ -120,7 +193,7 @@ if (userState.step === 'AWAITING_EXPORT_PIN') {
     }
 
 
-   // --- /setpin [4-6 digits] OR /setpin [old_pin] [new_pin] ---
+    // --- /setpin [4-6 digits] OR /setpin [old_pin] [new_pin] ---
     if (msg.startsWith('/setpin')) {
       const parts = rawMsg.split(' ');
 
@@ -130,7 +203,7 @@ if (userState.step === 'AWAITING_EXPORT_PIN') {
       }
 
 
-      // CASE 1: User ALREADY HAS a PIN (Requires Old PIN verification)
+      // CASE 1: User ALREADY HAS a PIN
       if (user.pin) {
         const oldPinInput = parts[1];
         const newPinInput = parts[2];
@@ -221,7 +294,6 @@ if (userState.step === 'AWAITING_EXPORT_PIN') {
       }
 
 
-      // 1. Atomic Balance Deduction on Sender
       const sender = await UserModel.findOneAndUpdate(
         { phone: senderPhone, balance: { $gte: amount } },
         { $inc: { balance: -amount } },
@@ -234,7 +306,6 @@ if (userState.step === 'AWAITING_EXPORT_PIN') {
       }
 
 
-      // 2. Find or Auto-Provision Recipient & Increment Balance
       const recipient = await UserModel.findOneAndUpdate(
         { phone: normalizedTargetPhone },
         { $inc: { balance: amount } },
@@ -242,7 +313,6 @@ if (userState.step === 'AWAITING_EXPORT_PIN') {
       );
 
 
-      // 3. 🔔 DISPATCH OUTBOUND NOTIFICATION TO RECIPIENT (Asynchronous)
       const recipientNotificationText =
         `🎉 *You received KAS!*\n\n` +
         `• *Amount:* ${amount} KAS\n` +
@@ -256,14 +326,12 @@ if (userState.step === 'AWAITING_EXPORT_PIN') {
       });
 
 
-      // 4. 💬 RETURN RECEIPT TO SENDER (Synchronous Webhook Response)
       return (
         `✅ *Transfer Successful!*\n\n` +
         `Sent *${amount} KAS* to *${normalizedTargetPhone}*.\n` +
         `Your new balance is *${sender.balance.toFixed(4)} KAS*.`
       );
     }
-
 
 
     // --- /redeem [code] ---
