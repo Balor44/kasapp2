@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { Menu, X, ArrowRight, Shield, Zap, MessageCircle, ExternalLink, GraduationCap } from 'lucide-react';
+import { 
+  Menu, X, ArrowRight, Zap, Shield, MessageSquare, Clock, 
+  Moon, ExternalLink, GraduationCap, Globe, Users, CheckCircle
+} from 'lucide-react';
 import { BlockDAGWatermark } from './components/BlockDAGAnimation';
 
 
 export default function KasappLanding() {
-  const [menuOpen, setMenuOpen] = useState<boolean>(false);
-  const [phone, setPhone] = useState<string>("");
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [phone, setPhone] = useState('');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [number, setNumber] = useState<number | null>(null);
-  const [openFaq, setOpenFaq] = useState<number>(-1);
 
 
   const API_BASE = import.meta.env.VITE_API_URL || '/api';
@@ -16,283 +18,372 @@ export default function KasappLanding() {
 
   const joinWaitlist = async () => {
     if (!phone.trim()) return;
-    setStatus("loading");
+    setStatus('loading');
     try {
       const res = await fetch(`${API_BASE}/waitlist`, { 
-        method: "POST", 
-        headers: { "Content-Type": "application/json" }, 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ phone }) 
       });
       const data = await res.json();
       if (res.ok) { 
-        setStatus("success"); 
+        setStatus('success'); 
         setNumber(data.number); 
       } else { 
-        setStatus("error"); 
+        setStatus('error'); 
         if (data.number) setNumber(data.number); 
       }
     } catch { 
-      setStatus("error"); 
+      setStatus('error'); 
     }
   };
 
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-inter relative overflow-hidden selection:bg-emerald-900 selection:text-emerald-100">
+    <div className="min-h-screen bg-[#F6F8F6] text-zinc-800 font-sans relative overflow-hidden selection:bg-emerald-100 selection:text-emerald-900">
       
-      {/* BACKGROUND DEPTH & GRID */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_center,rgba(16,185,129,0.08)_0%,transparent_60%)]"></div>
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#18181b15_1px,transparent_1px),linear-gradient(to_bottom,#18181b15_1px,transparent_1px)] bg-[size:4rem_4rem]"></div>
-      </div>
-
-
-      {/* HEADER & NAVIGATION */}
-      <header className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800/60">
-        <nav className="container mx-auto px-6 py-4 flex items-center justify-between relative z-10">
+      {/* NAVIGATION BAR */}
+      <header className="sticky top-0 z-50 bg-[#F6F8F6]/90 backdrop-blur-md border-b border-zinc-200/80">
+        <nav className="container mx-auto px-6 py-4 flex items-center justify-between">
           
+          {/* Logo */}
           <div className="flex items-center gap-3">
-            <img src="/logo.svg" alt="Kasapp Logo" className="h-8 w-auto object-contain" onError={(e) => (e.currentTarget.style.display = 'none')} />
-            <div className="flex flex-col leading-none">
-              <span className="font-fraunces text-2xl font-bold tracking-tight text-emerald-400">Kasapp</span>
-            </div>
+  {/* Kasapp Chat Bubble + K Vector Logo */}
+  <svg 
+    width="38" 
+    height="38" 
+    viewBox="0 0 100 100" 
+    fill="none" 
+    xmlns="http://www.w3.org/2000/svg"
+    className="shrink-0"
+  >
+    {/* Chat Bubble Background */}
+    <path 
+      d="M50 10C27.9086 10 10 26.1177 10 46C10 54.852 13.5186 62.9431 19.3897 69.1026L14 88L33.7226 82.2661C38.6816 84.6687 44.1834 86 50 86C72.0914 86 90 69.8823 90 50C90 30.1177 72.0914 10 50 10Z" 
+      fill="#16A344"
+    />
+    {/* Kaspa K Arrow inside */}
+    <path 
+      d="M36 32V68M36 50L58 32M36 50L58 68M46 50H66" 
+      stroke="white" 
+      strokeWidth="7" 
+      strokeLinecap="round" 
+      strokeLinejoin="round"
+    />
+  </svg>
+
+
+  {/* Brand Name & Tagline */}
+  <div className="flex flex-col leading-none">
+    <span className="text-2xl font-bold tracking-tight text-[#0F172A]">Kasapp</span>
+    <span className="text-[9px] font-semibold text-[#16A344] tracking-wider uppercase mt-1">
+      Money. Fast. Simple. Private.
+    </span>
+  </div>
+</div>
+
+          {/* Desktop Nav Links */}
+          <div className="hidden md:flex items-center gap-7 text-sm font-medium text-zinc-600">
+            <a href="#home" className="text-emerald-600 font-semibold border-b-2 border-emerald-500 pb-0.5">Home</a>
+            <a href="#features" className="hover:text-emerald-600 transition-colors">Features</a>
+            <a href="#how-it-works" className="hover:text-emerald-600 transition-colors">How It Works</a>
+            <a href="https://kaspa.university" target="_blank" rel="noopener noreferrer" className="hover:text-emerald-600 transition-colors flex items-center gap-1">
+              Kaspa University <ExternalLink size={12} />
+            </a>
+            <a href="#faq" className="hover:text-emerald-600 transition-colors">FAQ</a>
           </div>
 
 
-          <div className="hidden md:flex items-center gap-8 font-medium text-sm text-zinc-400">
-            <a href="#features" className="hover:text-emerald-400 transition-colors">Benefits</a>
-            <a href="#simulation" className="hover:text-emerald-400 transition-colors">BlockDAG</a>
-            
-            {/* KASPA UNIVERSITY CORRECT LINK */}
-            <a 
-              href="https://kaspa.university" 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="flex items-center gap-1.5 text-zinc-300 hover:text-emerald-400 transition-colors font-medium bg-zinc-900/80 border border-zinc-800 px-3.5 py-1.5 rounded-full"
-            >
-              <GraduationCap size={16} className="text-emerald-400" />
-              <span>Kaspa University</span>
-              <ExternalLink size={12} className="text-zinc-500" />
-            </a>
-
-
-            <a href="#waitlist" className="bg-emerald-500/10 text-emerald-400 px-5 py-2 rounded-full border border-emerald-500/20 hover:bg-emerald-500 hover:text-zinc-950 transition-all font-semibold">
-              Get Access
+          {/* Nav Right Actions */}
+          <div className="hidden md:flex items-center gap-4">
+            <button className="text-zinc-500 hover:text-zinc-800 p-2 rounded-full">
+              <Moon size={18} />
+            </button>
+            <a href="#waitlist" className="bg-emerald-600 text-white px-5 py-2.5 rounded-full font-medium hover:bg-emerald-700 transition-all shadow-sm flex items-center gap-2 text-sm">
+              Join Waitlist <ArrowRight size={15} />
             </a>
           </div>
 
 
-          <button className="md:hidden text-zinc-300" onClick={() => setMenuOpen(!menuOpen)}>
+          {/* Mobile Toggle */}
+          <button className="md:hidden text-zinc-700" onClick={() => setMenuOpen(!menuOpen)}>
             {menuOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
         </nav>
 
 
+        {/* Mobile Dropdown */}
         {menuOpen && (
-          <div className="md:hidden absolute top-full left-0 w-full bg-zinc-900 border-b border-zinc-800 flex flex-col px-6 py-4 shadow-xl z-50">
-            <a href="#features" onClick={() => setMenuOpen(false)} className="py-3 text-zinc-300 border-b border-zinc-800/50">Benefits</a>
-            <a href="#simulation" onClick={() => setMenuOpen(false)} className="py-3 text-zinc-300 border-b border-zinc-800/50">BlockDAG Tech</a>
-            <a 
-              href="https://kaspa.university" 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="py-3 text-emerald-400 font-medium flex items-center gap-2 border-b border-zinc-800/50"
-            >
-              <GraduationCap size={18} /> Kaspa University
+          <div className="md:hidden bg-white border-b border-zinc-200 px-6 py-4 flex flex-col gap-3 shadow-lg">
+            <a href="#home" onClick={() => setMenuOpen(false)} className="py-2 text-zinc-800 font-medium">Home</a>
+            <a href="#features" onClick={() => setMenuOpen(false)} className="py-2 text-zinc-600">Features</a>
+            <a href="https://kaspa.university" target="_blank" rel="noopener noreferrer" className="py-2 text-emerald-600 font-medium flex items-center gap-2">
+              <GraduationCap size={16} /> Kaspa University
             </a>
-            <a href="#waitlist" onClick={() => setMenuOpen(false)} className="py-3 text-emerald-400 font-semibold">Join Waitlist</a>
+            <a href="#waitlist" onClick={() => setMenuOpen(false)} className="py-2 text-emerald-600 font-semibold">Join Waitlist</a>
           </div>
         )}
       </header>
 
 
-      {/* MAIN CONTENT */}
-      <main className="relative z-10">
+      {/* HERO SECTION */}
+      <section id="home" className="relative pt-12 pb-20 md:pt-16 md:pb-28">
         
-        {/* HERO SECTION */}
-        <section id="waitlist" className="relative pt-16 pb-20 md:pt-28 md:pb-28 border-b border-zinc-900/50">
-          <div className="container mx-auto px-6 relative z-10 flex flex-col items-center text-center max-w-3xl">
-            
-            <div className="inline-block px-4 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/5 text-emerald-400 font-plex text-xs font-semibold uppercase tracking-wider mb-8">
-              Micro-Payments Evolved
-            </div>
-            
-            <h1 className="font-fraunces text-5xl md:text-7xl font-bold leading-[1.1] mb-6 text-zinc-50">
-              WhatsApp Native <br />
-              <span className="text-emerald-400 italic font-medium">Kaspa Payments</span>
-            </h1>
-            
-            <p className="text-lg md:text-xl text-zinc-400 mb-10 max-w-2xl leading-relaxed">
-              Send, receive, and manage funds instantly directly from your WhatsApp chat. No new apps, no complex seed phrases—just instant liquidity powered by BlockDAG.
-            </p>
+        {/* Animated Canvas BlockDAG Simulation in Background */}
+        <div className="absolute inset-0 z-0 opacity-80">
+          <BlockDAGWatermark />
+        </div>
 
 
-            <div className="w-full max-w-md bg-zinc-900/70 p-2 rounded-2xl border border-zinc-800 backdrop-blur-md shadow-2xl">
-              <div className="flex relative">
-                <input
-                  type="tel"
-                  placeholder="Enter WhatsApp number..."
-                  className="w-full bg-transparent text-zinc-100 placeholder:text-zinc-600 px-6 py-4 outline-none font-medium"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  disabled={status === "loading" || status === "success"}
-                />
-                <button
-                  onClick={joinWaitlist}
-                  disabled={status === "loading" || status === "success"}
-                  className="bg-emerald-500 text-zinc-950 px-6 py-3 rounded-xl font-semibold flex items-center gap-2 hover:bg-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed m-1 whitespace-nowrap"
-                >
-                  {status === "loading" ? "Joining..." : status === "success" ? "Joined!" : "Join Now"}
-                  {status === "idle" && <ArrowRight size={18} strokeWidth={2.5} />}
-                </button>
+        <div className="container mx-auto px-6 relative z-10 max-w-7xl">
+          <div className="grid lg:grid-cols-12 gap-12 items-center">
+            
+            {/* LEFT COLUMN: Main Headlines & Waitlist */}
+            <div className="lg:col-span-6 flex flex-col gap-6 text-left">
+              
+              <div className="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3.5 py-1.5 rounded-full border border-emerald-200 text-xs font-semibold w-fit">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Built on Kaspa
+                <ArrowRight size={12} />
               </div>
-            </div>
 
 
-            {status === "success" && (
-              <div className="mt-6 inline-flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 px-6 py-3 rounded-full text-emerald-400 font-medium">
-                You're on the list! Position #{number}
-              </div>
-            )}
-            
-            {status === "error" && (
-              <div className="mt-6 text-red-400 bg-red-400/10 border border-red-400/20 px-6 py-3 rounded-full font-medium">
-                {number ? `Registered at position #${number}` : "Connection failed. Please try again."}
-              </div>
-            )}
-          </div>
-        </section>
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-zinc-900 leading-[1.15]">
+                Money. Fast. Simple. <br />
+                <span className="text-emerald-600">Private. For Everyone.</span>
+              </h1>
 
 
-        {/* KASPA.ORG STYLE CANVAS SIMULATION */}
-        <section id="simulation" className="py-20 bg-zinc-950/90 border-b border-zinc-900 relative">
-          <div className="container mx-auto px-6 max-w-5xl">
-            <div className="text-center mb-10">
-              <span className="text-emerald-500 font-plex text-xs uppercase tracking-widest font-semibold">Under the Hood</span>
-              <h2 className="font-fraunces text-3xl md:text-4xl font-semibold text-zinc-100 mt-2">
-                Real-Time BlockDAG Visualization
-              </h2>
-              <p className="text-zinc-400 text-sm max-w-xl mx-auto mt-3">
-                Watch parallel block formation in real time—enabling sub-second finality and zero-friction micro-transactions.
+              <p className="text-lg text-zinc-600 leading-relaxed max-w-xl">
+                Kasapp brings the power of Kaspa (KAS) to your WhatsApp. Send, receive, and use KAS with simple commands — no complicated wallets, no stress.
               </p>
-            </div>
 
 
-            <BlockDAGWatermark />
-          </div>
-        </section>
-
-
-        {/* FEATURES / BENEFITS SECTION */}
-        <section id="features" className="py-24 bg-zinc-950 relative z-10">
-          <div className="container mx-auto px-6 max-w-5xl">
-            <div className="text-center mb-16">
-              <h2 className="font-fraunces text-3xl md:text-4xl font-semibold text-zinc-100">
-                Why Choose Kasapp?
-              </h2>
-            </div>
-
-
-            <div className="grid md:grid-cols-3 gap-6">
-              <div className="bg-zinc-900/40 p-8 rounded-3xl border border-zinc-800/60 flex flex-col gap-5 hover:border-emerald-900/50 transition-colors">
-                <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 mb-2">
-                  <MessageCircle size={24} />
-                </div>
-                <h3 className="font-fraunces text-xl font-medium text-zinc-100">Native Experience</h3>
-                <p className="text-zinc-400 text-sm leading-relaxed">
-                  Micro-payments directly within WhatsApp chats. Pay friends or vendors seamlessly without context switching.
-                </p>
-              </div>
-
-
-              <div className="bg-zinc-900/40 p-8 rounded-3xl border border-zinc-800/60 flex flex-col gap-5 hover:border-emerald-900/50 transition-colors">
-                <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 mb-2">
-                  <Zap size={24} />
-                </div>
-                <h3 className="font-fraunces text-xl font-medium text-zinc-100">Instant & Feeless</h3>
-                <p className="text-zinc-400 text-sm leading-relaxed">
-                  Transactions settle in seconds with minimal network fees, backed by Kaspa's high-throughput architecture.
-                </p>
-              </div>
-
-
-              <div className="bg-zinc-900/40 p-8 rounded-3xl border border-zinc-800/60 flex flex-col gap-5 hover:border-emerald-900/50 transition-colors">
-                <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 mb-2">
-                  <Shield size={24} />
-                </div>
-                <h3 className="font-fraunces text-xl font-medium text-zinc-100">Non-Custodial Focus</h3>
-                <p className="text-zinc-400 text-sm leading-relaxed">
-                  Abstracts seed phrase friction while preserving core security practices for everyday digital transfers.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-
-        {/* KASPA UNIVERSITY PROMO SECTION */}
-        <section className="py-16 bg-emerald-950/20 border-y border-emerald-900/30">
-          <div className="container mx-auto px-6 max-w-4xl flex flex-col md:flex-row items-center justify-between gap-8 text-center md:text-left">
-            <div>
-              <div className="flex items-center justify-center md:justify-start gap-2 text-emerald-400 font-semibold mb-2">
-                <GraduationCap size={20} />
-                <span>Kaspa University Educational Partner</span>
-              </div>
-              <h3 className="font-fraunces text-2xl font-bold text-zinc-100">Master the GHOSTDAG Protocol</h3>
-              <p className="text-zinc-400 text-sm mt-1 max-w-xl">
-                Dive deep into Kaspa's revolutionary technology with interactive courses, technical documentation, and community learning modules.
-              </p>
-            </div>
-            <a 
-              href="https://kaspa.university" 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="bg-emerald-500 text-zinc-950 font-semibold px-6 py-3.5 rounded-xl flex items-center gap-2 hover:bg-emerald-400 transition-colors shrink-0"
-            >
-              <span>Explore Kaspa University</span>
-              <ExternalLink size={16} />
-            </a>
-          </div>
-        </section>
-
-
-        {/* FAQ SECTION */}
-        <section id="faq" className="py-24 bg-zinc-950">
-          <div className="container mx-auto px-6 max-w-2xl">
-            <h2 className="font-fraunces text-3xl font-semibold text-center mb-12">Frequently Asked Questions</h2>
-            <div className="flex flex-col gap-4">
-              {[
-                { q: "Is Kasapp an official Kaspa product?", a: "No. Kasapp is an independent ecosystem tool built to enable WhatsApp-native micro-payments on Kaspa." },
-                { q: "How do WhatsApp payments work?", a: "You link your wallet address and issue commands directly through an automated WhatsApp chat interface." },
-                { q: "When will Kasapp launch?", a: "We are onboarding initial waitlist users. Beta invites will roll out sequentially." }
-              ].map((faq, idx) => (
-                <div key={idx} className="bg-zinc-900/30 border border-zinc-800 rounded-2xl overflow-hidden transition-all">
+              {/* Action Buttons / Waitlist Form */}
+              <div id="waitlist" className="flex flex-col sm:flex-row gap-3 pt-2">
+                <div className="flex-1 bg-white p-1.5 rounded-2xl border border-zinc-300 shadow-sm flex items-center">
+                  <input
+                    type="tel"
+                    placeholder="WhatsApp number..."
+                    className="w-full bg-transparent px-4 py-3 outline-none text-zinc-800 placeholder:text-zinc-400 text-sm font-medium"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
                   <button
-                    className="w-full text-left px-6 py-5 flex items-center justify-between font-medium text-zinc-200"
-                    onClick={() => setOpenFaq(openFaq === idx ? -1 : idx)}
+                    onClick={joinWaitlist}
+                    disabled={status === 'loading' || status === 'success'}
+                    className="bg-emerald-600 text-white px-5 py-3 rounded-xl font-semibold hover:bg-emerald-700 transition-colors text-sm whitespace-nowrap disabled:opacity-50"
                   >
-                    {faq.q}
-                    <span className="text-emerald-500 font-plex text-xl leading-none">
-                      {openFaq === idx ? "−" : "+"}
-                    </span>
+                    {status === 'loading' ? 'Joining...' : status === 'success' ? 'Joined!' : 'Join on WhatsApp'}
                   </button>
-                  {openFaq === idx && (
-                    <div className="px-6 pb-5 text-zinc-400 text-sm leading-relaxed border-t border-zinc-800/50 pt-4">
-                      {faq.a}
-                    </div>
-                  )}
                 </div>
-              ))}
+              </div>
+
+
+              {status === 'success' && (
+                <p className="text-sm text-emerald-700 font-semibold bg-emerald-50 p-3 rounded-xl border border-emerald-200 w-fit">
+                  🎉 You're in! Position #{number} on the waitlist.
+                </p>
+              )}
+
+
+              {/* Launch Badge */}
+              <div className="bg-white/80 backdrop-blur-sm border border-zinc-200/80 p-4 rounded-2xl flex items-center justify-between max-w-sm shadow-sm mt-2">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">🇳🇬</span>
+                  <div>
+                    <h4 className="font-bold text-zinc-900 text-sm">Launching in Nigeria First</h4>
+                    <p className="text-xs text-zinc-500">Expanding across Africa soon</p>
+                  </div>
+                </div>
+                <span className="text-xl">🌍</span>
+              </div>
+
+
             </div>
+
+
+            {/* CENTER/RIGHT COLUMN: Phone Mockup & Quick Cards */}
+            <div className="lg:col-span-6 grid sm:grid-cols-12 gap-6 items-center">
+              
+              {/* WhatsApp Phone Mockup Frame */}
+              <div className="sm:col-span-7 flex justify-center">
+                <div className="w-[280px] bg-zinc-900 rounded-[40px] p-3 shadow-2xl border-4 border-zinc-800">
+                  <div className="bg-[#E5DDD5] rounded-[30px] overflow-hidden text-xs">
+                    
+                    {/* Header */}
+                    <div className="bg-[#075E54] text-white p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-emerald-400 flex items-center justify-center text-[10px] font-bold text-zinc-900">
+                          ⚡
+                        </div>
+                        <div>
+                          <p className="font-bold leading-none">Kasapp</p>
+                          <p className="text-[9px] text-emerald-200 leading-none mt-0.5">online</p>
+                        </div>
+                      </div>
+                    </div>
+
+
+                    {/* Chat Messages */}
+                    <div className="p-3 flex flex-col gap-2.5 min-h-[340px]">
+                      
+                      <div className="bg-white p-2.5 rounded-lg max-w-[85%] self-end shadow-sm">
+                        <p className="font-mono text-[11px] text-zinc-800">/balance</p>
+                        <span className="text-[8px] text-zinc-400 block text-right mt-0.5">9:41 AM ✓✓</span>
+                      </div>
+
+
+                      <div className="bg-white p-3 rounded-lg max-w-[90%] self-start shadow-sm border-l-2 border-emerald-500">
+                        <p className="font-bold text-zinc-700 text-[11px]">💰 Your Kaspa Balance</p>
+                        <p className="text-sm font-bold text-zinc-900 mt-1">123.456 KAS</p>
+                        <p className="text-[10px] text-zinc-500">≈ ₦145,678.90 NGN</p>
+                        <span className="text-[8px] text-zinc-400 block text-right mt-1">9:41 AM</span>
+                      </div>
+
+
+                      <div className="bg-white p-2.5 rounded-lg max-w-[85%] self-end shadow-sm">
+                        <p className="font-mono text-[11px] text-zinc-800">/send 08012345678 10</p>
+                        <span className="text-[8px] text-zinc-400 block text-right mt-0.5">9:42 AM ✓✓</span>
+                      </div>
+
+
+                      <div className="bg-[#DCF8C6] p-2.5 rounded-lg max-w-[90%] self-start shadow-sm">
+                        <p className="font-bold text-emerald-900 text-[11px]">✅ Sent 10 KAS to 08012345678</p>
+                        <p className="text-[9px] text-zinc-600 font-mono mt-0.5">TxID: 3f7a...8c2d</p>
+                        <span className="text-[8px] text-zinc-400 block text-right mt-1">9:42 AM</span>
+                      </div>
+
+
+                    </div>
+
+
+                  </div>
+                </div>
+              </div>
+
+
+              {/* Quick Feature Pill List */}
+              <div className="sm:col-span-5 flex flex-col gap-3">
+                {[
+                  { icon: MessageSquare, title: 'WhatsApp Enabled', desc: 'Use Kasapp on WhatsApp just like chatting' },
+                  { icon: Zap, title: 'Instant Transactions', desc: "Powered by Kaspa's blazing-fast network" },
+                  { icon: Clock, title: 'Low Fees', desc: 'Enjoy ultra-low fees on every transaction' },
+                  { icon: Shield, title: 'Private & Secure', desc: 'Your keys, your money, your privacy' },
+                ].map((item, idx) => (
+                  <div key={idx} className="bg-white p-3.5 rounded-2xl border border-zinc-200/80 shadow-sm flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 shrink-0">
+                      <item.icon size={18} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-zinc-900 text-xs">{item.title}</h4>
+                      <p className="text-[11px] text-zinc-500 leading-tight mt-0.5">{item.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+
+            </div>
+
+
           </div>
-        </section>
-      </main>
+        </div>
+      </section>
+
+
+      {/* WHY KASAPP SECTION */}
+      <section id="features" className="py-16 bg-white border-t border-zinc-200">
+        <div className="container mx-auto px-6 max-w-6xl">
+          
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-extrabold text-zinc-900">Why Kasapp?</h2>
+            <p className="text-zinc-500 text-sm mt-2">Built for everyday people. Designed for Africa. Powered by Kaspa.</p>
+          </div>
+
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              { icon: MessageSquare, title: 'Simple as WhatsApp', desc: 'No complex apps. Just chat and transact using easy commands.' },
+              { icon: Zap, title: 'Blazing Fast', desc: 'Kaspa is one of the fastest blockchains in the world. Transactions in seconds.' },
+              { icon: Clock, title: 'Low Cost', desc: 'Tiny fees mean you keep more of your money. Perfect for everyday use.' },
+              { icon: Shield, title: 'Secure & Private', desc: "Built with security and privacy in mind. You're in control of your funds." },
+            ].map((card, idx) => (
+              <div key={idx} className="bg-[#F8FAF8] p-6 rounded-2xl border border-zinc-200/80 flex flex-col gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <card.icon size={20} />
+                </div>
+                <h3 className="font-bold text-zinc-900 text-base">{card.title}</h3>
+                <p className="text-zinc-600 text-xs leading-relaxed">{card.desc}</p>
+              </div>
+            ))}
+          </div>
+
+
+        </div>
+      </section>
+
+
+      {/* DARK EMERALD BOTTOM BANNER */}
+      <section className="py-10 bg-[#063b2a] text-white">
+        <div className="container mx-auto px-6 max-w-6xl">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-800/60 text-emerald-300">
+                <Users size={20} />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm">Built on Kaspa</h4>
+                <p className="text-xs text-emerald-200/80">The fastest PoW network</p>
+              </div>
+            </div>
+
+
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-800/60 text-emerald-300">
+                <Globe size={20} />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm">For Everyone</h4>
+                <p className="text-xs text-emerald-200/80">Designed for next billion users</p>
+              </div>
+            </div>
+
+
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-800/60 text-emerald-300">
+                <span className="text-base">🇳🇬</span>
+              </div>
+              <div>
+                <h4 className="font-bold text-sm">Nigeria First</h4>
+                <p className="text-xs text-emerald-200/80">Launching in Nigeria, expanding soon</p>
+              </div>
+            </div>
+
+
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-800/60 text-emerald-300">
+                <CheckCircle size={20} />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm">Open & Decentralized</h4>
+                <p className="text-xs text-emerald-200/80">Open source & community driven</p>
+              </div>
+            </div>
+
+
+          </div>
+        </div>
+      </section>
 
 
       {/* FOOTER */}
-      <footer className="py-8 border-t border-zinc-900 text-center text-zinc-500 text-sm font-medium relative z-10 bg-zinc-950">
+      <footer className="py-6 bg-white border-t border-zinc-200 text-center text-zinc-500 text-xs">
         <p>© 2026 Kasapp. Built for the Kaspa Ecosystem.</p>
       </footer>
+
+
     </div>
   );
 }
