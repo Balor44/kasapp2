@@ -1,10 +1,18 @@
 import React, { useState } from 'react';
-import { 
-  Menu, X, ArrowRight, Zap, Shield, MessageSquare, Clock, 
-  ExternalLink, GraduationCap, Globe, Users, CheckCircle,
-  Share2, Sparkles, Copy, Check, Smartphone, Lightbulb, Tv, Wifi
+import {
+  Menu, X, ArrowRight, Zap, Shield, MessageSquare, Clock,
+  ExternalLink, GraduationCap, CheckCircle, Sparkles, Copy, Check, 
+  Smartphone, Lightbulb, Tv
 } from 'lucide-react';
 import { BlockDAGWatermark } from './components/BlockDAGAnimation';
+
+
+interface Message {
+  id: number;
+  sender: 'user' | 'bot';
+  text: string;
+  time: string;
+}
 
 
 export default function KasappLanding() {
@@ -15,6 +23,26 @@ export default function KasappLanding() {
   const [copied, setCopied] = useState(false);
 
 
+  // Interactive WhatsApp Simulation State
+  const kasRate = 250; // 1 KAS ~ ₦250 NGN (Example exchange rate)
+  const [kasBalance, setKasBalance] = useState<number>(1250.50);
+  const [isTyping, setIsTyping] = useState<boolean>(false);
+  const [simulatedMessages, setSimulatedMessages] = useState<Message[]>([
+    {
+      id: 1,
+      sender: 'user',
+      text: 'balance',
+      time: '10:00 AM',
+    },
+    {
+      id: 2,
+      sender: 'bot',
+      text: `💰 *Your Kasapp Balance:*\n\n*1,250.50 KAS*\n≈ *₦312,625 NGN*\n\nType *airtime*, *send*, or *help* for options.`,
+      time: '10:00 AM',
+    },
+  ]);
+
+
   const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 
@@ -23,29 +51,77 @@ export default function KasappLanding() {
     if (!phone.trim()) return;
     setStatus('loading');
     try {
-      const res = await fetch(`${API_BASE}/waitlist`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ phone }) 
+      const res = await fetch(`${API_BASE}/waitlist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone })
       });
       const data = await res.json();
-      if (res.ok) { 
-        setStatus('success'); 
-        setNumber(data.number); 
-      } else { 
-        setStatus('error'); 
-        if (data.number) setNumber(data.number); 
+      if (res.ok) {
+        setStatus('success');
+        setNumber(data.number);
+      } else {
+        setStatus('error');
+        if (data.number) setNumber(data.number);
       }
-    } catch { 
-      setStatus('error'); 
+    } catch {
+      setStatus('error');
     }
   };
 
 
   const copyInviteLink = () => {
-    navigator.clipboard.writeText("https://kasapp.io");
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (typeof window !== 'undefined') {
+      navigator.clipboard.writeText(window.location.origin);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+
+  // Run interactive airtime transaction in WhatsApp simulator
+  const runSimulatedBillPay = () => {
+    if (simulatedMessages.length > 2) return;
+
+
+    setIsTyping(true);
+
+
+    // 1. User types airtime request
+    setTimeout(() => {
+      setIsTyping(false);
+      setSimulatedMessages((prev) => [
+        ...prev,
+        {
+          id: 3,
+          sender: 'user',
+          text: 'airtime MTN 07031551438 1000',
+          time: '10:01 AM',
+        },
+      ]);
+      setIsTyping(true);
+    }, 1500);
+
+
+    // 2. Bot processes airtime & updates KAS / NGN balance
+    setTimeout(() => {
+      const airtimeNaira = 1000;
+      const kasDeducted = airtimeNaira / kasRate; // 4 KAS
+      const newBalance = kasBalance - kasDeducted;
+      setKasBalance(newBalance);
+
+
+      setIsTyping(false);
+      setSimulatedMessages((prev) => [
+        ...prev,
+        {
+          id: 4,
+          sender: 'bot',
+          text: `📱 *Airtime Purchase Successful!*\n\n• *Service:* MTN Airtime\n• *Recipient:* 07031551438\n• *Amount:* ₦1,000 NGN\n• *Deducted:* -${kasDeducted.toFixed(2)} KAS\n\n💰 *New Balance:* ${newBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })} KAS (≈ ₦${(newBalance * kasRate).toLocaleString('en-US')} NGN)`,
+          time: '10:01 AM',
+        },
+      ]);
+    }, 3800);
   };
 
 
@@ -70,7 +146,7 @@ export default function KasappLanding() {
           </div>
 
 
-          <button 
+          <button
             onClick={() => { setStatus('idle'); setPhone(''); }}
             className="text-xs font-semibold text-zinc-500 hover:text-zinc-800 underline"
           >
@@ -117,13 +193,13 @@ export default function KasappLanding() {
                 Share Kasapp with friends:
               </label>
               <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  readOnly 
-                  value="https://kasapp.io" 
+                <input
+                  type="text"
+                  readOnly
+                  value={typeof window !== 'undefined' ? window.location.origin : 'Kasapp'}
                   className="flex-1 bg-zinc-100 border border-zinc-200 rounded-xl px-4 py-2.5 text-xs text-zinc-600 outline-none"
                 />
-                <button 
+                <button
                   onClick={copyInviteLink}
                   className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-1.5 shrink-0"
                 >
@@ -135,10 +211,10 @@ export default function KasappLanding() {
 
 
             <div className="w-full flex flex-col gap-3">
-              <a 
-                href="https://kaspa.university" 
-                target="_blank" 
-                rel="noopener noreferrer" 
+              <a
+                href="https://kaspa.university"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="w-full py-3 px-4 bg-zinc-900 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 hover:bg-zinc-800 transition-colors"
               >
                 <GraduationCap size={16} />
@@ -170,23 +246,23 @@ export default function KasappLanding() {
           
           {/* BRAND LOGO */}
           <div className="flex items-center gap-3">
-            <svg 
-              width="38" 
-              height="38" 
-              viewBox="0 0 100 100" 
-              fill="none" 
+            <svg
+              width="38"
+              height="38"
+              viewBox="0 0 100 100"
+              fill="none"
               xmlns="http://www.w3.org/2000/svg"
               className="shrink-0"
             >
-              <path 
-                d="M50 10C27.9086 10 10 26.1177 10 46C10 54.852 13.5186 62.9431 19.3897 69.1026L14 88L33.7226 82.2661C38.6816 84.6687 44.1834 86 50 86C72.0914 86 90 69.8823 90 50C90 30.1177 72.0914 10 50 10Z" 
+              <path
+                d="M50 10C27.9086 10 10 26.1177 10 46C10 54.852 13.5186 62.9431 19.3897 69.1026L14 88L33.7226 82.2661C38.6816 84.6687 44.1834 86 50 86C72.0914 86 90 69.8823 90 50C90 30.1177 72.0914 10 50 10Z"
                 fill="#16A344"
               />
-              <path 
-                d="M36 32V68M36 50L58 32M36 50L58 68M46 50H66" 
-                stroke="white" 
-                strokeWidth="7" 
-                strokeLinecap="round" 
+              <path
+                d="M36 32V68M36 50L58 32M36 50L58 68M46 50H66"
+                stroke="white"
+                strokeWidth="7"
+                strokeLinecap="round"
                 strokeLinejoin="round"
               />
             </svg>
@@ -314,61 +390,65 @@ export default function KasappLanding() {
             </div>
 
 
-            {/* RIGHT COLUMN: WhatsApp Mockup with Utility Commands */}
+            {/* RIGHT COLUMN: Interactive WhatsApp Phone Mockup with Live KAS/NGN & Bill Pay Simulation */}
             <div className="lg:col-span-6 grid sm:grid-cols-12 gap-6 items-center">
               
               <div className="sm:col-span-7 flex justify-center">
-                <div className="w-[285px] bg-zinc-900 rounded-[40px] p-3 shadow-2xl border-4 border-zinc-800">
-                  <div className="bg-[#E5DDD5] rounded-[30px] overflow-hidden text-xs">
-                    
-                    <div className="bg-[#075E54] text-white p-3 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-emerald-400 flex items-center justify-center text-[10px] font-bold text-zinc-900">
-                          ⚡
-                        </div>
-                        <div>
-                          <p className="font-bold leading-none">Kasapp Bot</p>
-                          <p className="text-[9px] text-emerald-200 leading-none mt-0.5">online</p>
-                        </div>
+                <div className="w-[300px] bg-zinc-900 rounded-[40px] p-3 shadow-2xl border-4 border-zinc-800 flex flex-col">
+                  
+                  {/* WhatsApp Header */}
+                  <div className="bg-[#075E54] text-white p-3 rounded-t-[30px] flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-emerald-400 flex items-center justify-center text-[10px] font-bold text-zinc-900">
+                        ⚡
+                      </div>
+                      <div>
+                        <p className="font-bold text-xs leading-none">Kasapp Wallet</p>
+                        <p className="text-[9px] text-emerald-200 leading-none mt-0.5">online • bot</p>
                       </div>
                     </div>
-
-
-                    <div className="p-3 flex flex-col gap-2.5 min-h-[350px]">
-                      
-                      {/* Airtime Purchase Command */}
-                      <div className="bg-white p-2 rounded-lg max-w-[85%] self-end shadow-sm">
-                        <p className="font-mono text-[10px] text-zinc-800">/airtime MTN 08012345678 1000</p>
-                        <span className="text-[7px] text-zinc-400 block text-right mt-0.5">9:41 AM ✓✓</span>
-                      </div>
-
-
-                      <div className="bg-[#DCF8C6] p-2 rounded-lg max-w-[90%] self-start shadow-sm border-l-2 border-emerald-600">
-                        <p className="font-bold text-emerald-900 text-[10px]">📱 Airtime Purchase Successful</p>
-                        <p className="text-[9px] text-zinc-700 mt-0.5">₦1,000 MTN sent to 08012345678</p>
-                        <p className="text-[8px] text-zinc-500 font-mono mt-0.5">Paid: 3.42 KAS</p>
-                        <span className="text-[7px] text-zinc-400 block text-right">9:41 AM</span>
-                      </div>
-
-
-                      {/* Electricity Bill Command */}
-                      <div className="bg-white p-2 rounded-lg max-w-[85%] self-end shadow-sm">
-                        <p className="font-mono text-[10px] text-zinc-800">/bill IKEDC 0123456789 5000</p>
-                        <span className="text-[7px] text-zinc-400 block text-right mt-0.5">9:42 AM ✓✓</span>
-                      </div>
-
-
-                      <div className="bg-white p-2.5 rounded-lg max-w-[90%] self-start shadow-sm">
-                        <p className="font-bold text-zinc-800 text-[10px]">💡 Token: 4821-9012-3491-0182</p>
-                        <p className="text-[9px] text-zinc-600">IKEDC Prepaid • ₦5,000</p>
-                        <span className="text-[7px] text-zinc-400 block text-right mt-1">9:42 AM</span>
-                      </div>
-
-
-                    </div>
-
-
                   </div>
+
+
+                  {/* Chat Message Stream */}
+                  <div className="bg-[#E5DDD5] p-3 flex flex-col gap-2.5 h-[360px] overflow-y-auto text-xs">
+                    {simulatedMessages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`max-w-[88%] rounded-lg p-2.5 text-[11px] shadow-sm ${
+                          msg.sender === 'user'
+                            ? 'bg-white text-zinc-800 self-end rounded-tr-none font-mono text-[10px]'
+                            : 'bg-[#DCF8C6] text-zinc-900 self-start rounded-tl-none border-l-2 border-emerald-600'
+                        }`}
+                      >
+                        <p className="whitespace-pre-line leading-relaxed">{msg.text}</p>
+                        <span className="block text-[7px] text-zinc-400 text-right mt-1">
+                          {msg.time}
+                        </span>
+                      </div>
+                    ))}
+
+
+                    {isTyping && (
+                      <div className="bg-white p-2 rounded-lg self-start text-[10px] italic text-zinc-500 shadow-sm">
+                        Kasapp is typing...
+                      </div>
+                    )}
+                  </div>
+
+
+                  {/* Interactive Trigger Control */}
+                  <div className="p-2.5 bg-zinc-800 rounded-b-[30px] border-t border-zinc-700">
+                    <button
+                      onClick={runSimulatedBillPay}
+                      disabled={simulatedMessages.length > 2}
+                      className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 text-white text-[10px] font-semibold rounded-xl transition shadow-sm"
+                    >
+                      {simulatedMessages.length > 2 ? 'Simulation Complete ✨' : 'Simulate ₦1,000 Airtime Purchase ▶'}
+                    </button>
+                  </div>
+
+
                 </div>
               </div>
 
