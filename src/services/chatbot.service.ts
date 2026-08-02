@@ -8,80 +8,21 @@ import { normalizePhone } from '../utils/phone';
 import { normalizeVoucherCode } from '../utils/voucherCode';
 import { handleRecurringMenu } from '../controllers/subscription.controller';
 import { getUserState, saveUserState } from './userState.service';
-import { parseWhatsAppMessage, IntentResponse } from './aiParser';
 import { sendWhatsAppNotification } from './whatsapp.service';
 import { decryptMnemonic } from '../utils/crypto.utils';
 
 
 export const ChatbotService = {
   /**
-   * Primary entry point for natural language messages from WhatsApp.
-   * Passes raw text to Gemini AI parser, constructs synthetic commands,
-   * and routes them into the existing parse() engine.
+   * Primary entry point for messages from WhatsApp.
+   * Passes messages directly to the parse engine.
    */
   async processIncomingMessage(fromPhone: string, rawMessageText: string): Promise<string> {
     try {
-      // 1. Pass natural text through AI Intent Parser
-      const parsed: IntentResponse = await parseWhatsAppMessage(rawMessageText);
-      console.log(`[Chatbot AI] Parsed intent from "${rawMessageText}":`, parsed);
-
-
-      // 2. Delegate to corresponding domain handler based on Intent
-      switch (parsed.intent) {
-        case 'BUY_AIRTIME':
-          if (!parsed.recipient || !parsed.amount) {
-            return parsed.conversationalReply || "Please specify the network, amount, and phone number.\n\n*Example:* 'Buy 1000 MTN airtime for 08012345678'";
-          }
-          const provider = parsed.provider || 'MTN';
-          return await this.parse(fromPhone, `/airtime ${provider} ${parsed.recipient} ${parsed.amount}`);
-
-
-        case 'SEND_KAS':
-          if (!parsed.recipient || !parsed.amount) {
-            return parsed.conversationalReply || "Who would you like to send KAS to?\n\n*Example:* 'Send 10 KAS to 08012345678'";
-          }
-          return await this.parse(fromPhone, `/send ${parsed.recipient} ${parsed.amount}`);
-
-
-        case 'BALANCE':
-          return await this.parse(fromPhone, '/balance');
-
-
-        case 'REDEEM_VOUCHER':
-          if (!parsed.voucherCode) {
-            return parsed.conversationalReply || "Please provide a valid voucher code.\n\n*Example:* 'Redeem KASP-9482-1049'";
-          }
-          return await this.parse(fromPhone, `/redeem ${parsed.voucherCode}`);
-
-
-        case 'PAY_ELECTRICITY':
-          if (!parsed.recipient || !parsed.amount) {
-            return parsed.conversationalReply || "Please specify provider, meter number, and amount.\n\n*Example:* 'Pay 5000 IKEDC electricity for meter 1234567890'";
-          }
-          const elecProvider = parsed.provider || 'IKEDC';
-          return await this.parse(fromPhone, `/electricity ${elecProvider} ${parsed.recipient} ${parsed.amount}`);
-
-
-        case 'HELP':
-          return await this.parse(fromPhone, '/help');
-
-
-        case 'UNKNOWN':
-        default:
-          // If message starts with '/', execute directly as slash command
-          if (rawMessageText.trim().startsWith('/')) {
-            return await this.parse(fromPhone, rawMessageText);
-          }
-          
-          // Use Gemini's friendly conversational reply if available. 
-          // If Gemini also failed (UNKNOWN / confidence 0), show the default help text.
-          return parsed.conversationalReply || 
-            "Welcome to Kasapp! ⚡\n\nYou can chat with me naturally. Try asking:\n• *'Buy 1k MTN airtime for 08012345678'*\n• *'Check my balance'*\n• *'Send 50 KAS to 08012345678'*";
-      }
-    } catch (error) {
-      console.error(`[Chatbot AI Error] Processing message for ${fromPhone}:`, error);
-      // Fallback to direct execution if AI service fails entirely
       return await this.parse(fromPhone, rawMessageText);
+    } catch (error) {
+      console.error(`[Chatbot Error] Processing message for ${fromPhone}:`, error);
+      return "An unexpected error occurred. Type *help* to see what I can do.";
     }
   },
 
@@ -100,7 +41,7 @@ export const ChatbotService = {
 
 
     // Trigger command to enter auto-renewal menu
-    if (msg === '/auto' || msg === '/recurring' || msg === '/subscriptions') {
+    if (msg === '/auto' || msg === 'auto' || msg === '/recurring' || msg === 'recurring' || msg === 'subscriptions') {
       userState.step = 'SUB_MENU';
       await saveUserState(senderPhone, userState);
     }
@@ -135,7 +76,7 @@ export const ChatbotService = {
 
 
       const isMatch = await bcrypt.compare(rawMsg, user.pin);
-     
+      
       if (!isMatch) {
         userState.step = '';
         await saveUserState(senderPhone, userState);
@@ -145,7 +86,7 @@ export const ChatbotService = {
 
       try {
         const rawMnemonic = decryptMnemonic(user.mnemonic, process.env.ENCRYPTION_KEY || '');
-       
+        
         userState.step = '';
         await saveUserState(senderPhone, userState);
 
@@ -170,11 +111,87 @@ export const ChatbotService = {
 
 
     // -------------------------------------------------------------
-    // 3. STANDARD COMMANDS
+    // 3. NATURAL LANGUAGE / NON-SLASH PATTERN MATCHING & SYNTHESIS
+    // -------------------------------------------------------------
+    
+    // Balance Alias
+    if (['balance', 'bal', 'check balance', 'my balance', 'wallet'].includes(msg)) {
+      return await ChatbotService.parse(phone, '/balance');
+    }
+
+
+    // Help Alias
+    if (['help', 'commands', 'menu'].includes(msg)) {
+      return await ChatbotService.parse(phone, '/help');
+    }
+
+
+    // Export Seed Alias
+    if (['export', 'export seed', 'backup', 'show seed'].includes(msg)) {
+      return await ChatbotService.parse(phone, '/export');
+    }
+
+
+    // Airtime Natural Synthesizer: "airtime mtn 08012345678 1000" or "buy airtime mtn 08012345678 1000"
+    const airtimeRegex = /^(?:buy\s+)?airtime\s+(mtn|airtel|glo|9mobile)\s+(\d{11})\s+(\d+)$/i;
+    const airtimeMatch = rawMsg.match(airtimeRegex);
+    if (airtimeMatch) {
+      const [, network, targetPhone, amount] = airtimeMatch;
+      return await ChatbotService.parse(phone, `/airtime ${network.toUpperCase()} ${targetPhone} ${amount}`);
+    }
+
+
+    // Send KAS Natural Synthesizer: "send 08012345678 50" or "transfer 08012345678 50"
+    const sendRegex = /^(?:send|transfer)\s+(\d{11})\s+(\d+(?:\.\d+)?)$/i;
+    const sendMatch = rawMsg.match(sendRegex);
+    if (sendMatch) {
+      const [, recipient, amount] = sendMatch;
+      return await ChatbotService.parse(phone, `/send ${recipient} ${amount}`);
+    }
+
+
+    // Redeem Voucher Natural Synthesizer: "redeem KASP-1234-5678" or "voucher KASP-1234-5678"
+    const redeemRegex = /^(?:redeem|voucher)\s+([a-zA-Z0-9-]+)$/i;
+    const redeemMatch = rawMsg.match(redeemRegex);
+    if (redeemMatch) {
+      const [, code] = redeemMatch;
+      return await ChatbotService.parse(phone, `/redeem ${code}`);
+    }
+
+
+    // Electricity Natural Synthesizer: "electricity ikedc 1234567890 5000" or "pay electricity ikedc 1234567890 5000"
+    const elecRegex = /^(?:pay\s+)?electricity\s+([a-zA-Z]+)\s+(\d+)\s+(\d+)$/i;
+    const elecMatch = rawMsg.match(elecRegex);
+    if (elecMatch) {
+      const [, provider, meter, amount] = elecMatch;
+      return await ChatbotService.parse(phone, `/electricity ${provider.toUpperCase()} ${meter} ${amount}`);
+    }
+
+
+    // Cable TV Natural Synthesizer: "cable dstv 1234567890 8500" or "pay cable dstv 1234567890 8500"
+    const cableRegex = /^(?:pay\s+)?cable\s+([a-zA-Z]+)\s+(\d+)\s+(\d+)$/i;
+    const cableMatch = rawMsg.match(cableRegex);
+    if (cableMatch) {
+      const [, provider, smartcard, amount] = cableMatch;
+      return await ChatbotService.parse(phone, `/cable ${provider.toUpperCase()} ${smartcard} ${amount}`);
+    }
+
+
+    // Water Bill Natural Synthesizer: "water lswc 1234567890 3000" or "pay water lswc 1234567890 3000"
+    const waterRegex = /^(?:pay\s+)?water\s+([a-zA-Z]+)\s+(\d+)\s+(\d+)$/i;
+    const waterMatch = rawMsg.match(waterRegex);
+    if (waterMatch) {
+      const [, provider, account, amount] = waterMatch;
+      return await ChatbotService.parse(phone, `/water ${provider.toUpperCase()} ${account} ${amount}`);
+    }
+
+
+    // -------------------------------------------------------------
+    // 4. STANDARD COMMAND EXECUTORS
     // -------------------------------------------------------------
     if (msg === 'hi' || msg === 'hello' || msg === 'start') {
       if (user) {
-        return "Hey, welcome back! 👋\nYou've got " + user.balance.toFixed(4) + ' KAS sitting in your wallet.\n\nType /help if you need a reminder of what I can do.';
+        return "Hey, welcome back! 👋\nYou've got " + user.balance.toFixed(4) + ' KAS sitting in your wallet.\n\nType *help* if you need a reminder of what I can do.';
       }
       const { publicKey, secret } = await KaspaService.generateWallet();
       await UserModel.create({
@@ -183,7 +200,7 @@ export const ChatbotService = {
         mnemonic: secret,
         balance: 0,
       });
-      return "Welcome to Kasapp! 🎉 I just set up a wallet for you.\n\nYour address:\n" + publicKey + "\n\n⚠️ Your recovery phrase (save this now — I won't show it again):\n" + secret + "\n\nAnyone with this phrase can access your funds, so keep it somewhere private and offline. Whenever you're ready, type /balance to see your funds or /help to see what I can do.";
+      return "Welcome to Kasapp! 🎉 I just set up a wallet for you.\n\nYour address:\n" + publicKey + "\n\n⚠️ Your recovery phrase (save this now — I won't show it again):\n" + secret + "\n\nAnyone with this phrase can access your funds, so keep it somewhere private and offline. Whenever you're ready, type *balance* to see your funds or *help* to see what I can do.";
     }
 
 
@@ -276,7 +293,7 @@ export const ChatbotService = {
 
 
       if (!targetPhoneInput || !amountStr) {
-        return 'Usage: /send [phone_number] [amount_kas]\nExample: /send 08123456789 10';
+        return 'Usage: send [phone_number] [amount_kas]\nExample: send 08123456789 10';
       }
 
 
@@ -318,7 +335,7 @@ export const ChatbotService = {
         `• *Amount:* ${amount} KAS\n` +
         `• *From:* ${senderPhone}\n` +
         `• *New Balance:* ${recipient.balance.toFixed(4)} KAS\n\n` +
-        `Type */balance* to view your total wallet funds or */help* to spend it on utility bills!`;
+        `Type *balance* to view your total wallet funds or *help* to spend it on utility bills!`;
 
 
       sendWhatsAppNotification(normalizedTargetPhone, recipientNotificationText).catch((err) => {
@@ -337,7 +354,7 @@ export const ChatbotService = {
     // --- /redeem [code] ---
     if (msg.startsWith('/redeem')) {
       const parts = rawMsg.split(' ');
-      if (parts.length < 2) return 'Just need the code!\nUsage: /redeem [code]';
+      if (parts.length < 2) return 'Just need the code!\nUsage: redeem [code]';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
 
 
@@ -365,7 +382,7 @@ export const ChatbotService = {
     // --- /airtime ---
     if (msg.startsWith('/airtime')) {
       const parts = rawMsg.split(' ');
-      if (parts.length < 4) return 'I need a few more details for that.\nUsage: /airtime [network] [phone] [amount in naira]\nExample: /airtime MTN 08012345678 1000';
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: airtime [network] [phone] [amount in naira]\nExample: airtime MTN 08012345678 1000';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
 
 
@@ -392,7 +409,7 @@ export const ChatbotService = {
     // --- /electricity ---
     if (msg.startsWith('/electricity')) {
       const parts = rawMsg.split(' ');
-      if (parts.length < 4) return 'I need a few more details for that.\nUsage: /electricity [provider] [meter number] [amount in naira]\nExample: /electricity IKEDC 1234567890 5000';
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: electricity [provider] [meter number] [amount in naira]\nExample: electricity IKEDC 1234567890 5000';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
 
 
@@ -419,7 +436,7 @@ export const ChatbotService = {
     // --- /water ---
     if (msg.startsWith('/water')) {
       const parts = rawMsg.split(' ');
-      if (parts.length < 4) return 'I need a few more details for that.\nUsage: /water [provider] [account number] [amount in naira]\nExample: /water LSWC 1234567890 3000';
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: water [provider] [account number] [amount in naira]\nExample: water LSWC 1234567890 3000';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
 
 
@@ -446,7 +463,7 @@ export const ChatbotService = {
     // --- /cable ---
     if (msg.startsWith('/cable')) {
       const parts = rawMsg.split(' ');
-      if (parts.length < 4) return 'I need a few more details for that.\nUsage: /cable [provider] [smartcard number] [amount in naira]\nExample: /cable DSTV 1234567890 8500';
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: cable [provider] [smartcard number] [amount in naira]\nExample: cable DSTV 1234567890 8500';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
 
 
@@ -477,30 +494,29 @@ export const ChatbotService = {
         `Your instant gateway to Kaspa digital payments on WhatsApp!\n`,
         `📱 *WALLET MANAGEMENT*`,
         `• *Hi* — Access your wallet & main options`,
-        `• */balance* — Check your live KAS wallet balance`,
+        `• *balance* — Check your live KAS wallet balance`,
         `• */setpin [4-6 digits]* — Set or update security PIN`,
-        `• */export* — View recovery phrase (requires PIN)\n`,
+        `• *export* — View recovery phrase (requires PIN)\n`,
         `⚡ *INSTANT TRANSFERS & TOP-UPS*`,
-        `• */send [phone] [amount]*`,
-        `  _Example: /send 08012345678 10_`,
-        `• */redeem [code]*`,
-        `  _Example: /redeem MH29-XXXX-XXXX_\n`,
+        `• *send [phone] [amount]*`,
+        `  _Example: send 08012345678 10_`,
+        `• *redeem [code]*`,
+        `  _Example: redeem MH29-XXXX-XXXX_\n`,
         `💡 *UTILITY BILLS (1-TAP)*`,
-        `• */airtime [network] [phone] [naira]*`,
-        `  _Example: /airtime MTN 08012345678 1000_`,
-        `• */electricity [provider] [meter] [naira]*`,
-        `  _Example: /electricity IKEDC 1234567890 5000_`,
-        `• */cable [provider] [smartcard] [naira]*`,
-        `  _Example: /cable DSTV 1234567890 8500_`,
-        `• */water [provider] [account] [naira]*`,
-        `  _Example: /water LSWC 1234567890 3000_\n`,
+        `• *airtime [network] [phone] [naira]*`,
+        `  _Example: airtime MTN 08012345678 1000_`,
+        `• *electricity [provider] [meter] [naira]*`,
+        `  _Example: electricity IKEDC 1234567890 5000_`,
+        `• *cable [provider] [smartcard] [naira]*`,
+        `  _Example: cable DSTV 1234567890 8500_`,
+        `• *water [provider] [account] [naira]*`,
+        `  _Example: water LSWC 1234567890 3000_\n`,
         `🔄 *AUTOMATION & AUTOPILOT*`,
-        `• */auto* — Set up & manage recurring bill payments\n`,
-        ` Need help? Reply anytime or visit *kasapp.io*`
+        `• *auto* — Set up & manage recurring bill payments`
       ].join('\n');
     }
 
 
-    return "Sorry, I didn't quite catch that. Type /help to see everything I can do.";
+    return "Sorry, I didn't quite catch that. Type *help* to see everything I can do.";
   },
 };
