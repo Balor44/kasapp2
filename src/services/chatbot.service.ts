@@ -141,8 +141,8 @@ export const ChatbotService = {
     }
 
 
-    // Send KAS Natural Synthesizer: "send 08012345678 50" or "transfer 08012345678 50"
-    const sendRegex = /^(?:send|transfer)\s+(\d{11})\s+(\d+(?:\.\d+)?)$/i;
+    // Send KAS Natural Synthesizer: Supports phone numbers (080123...) AND Kaspa Addresses (kaspa:qq...)
+    const sendRegex = /^(?:send|transfer)\s+([a-zA-Z0-9:]+)\s+(\d+(?:\.\d+)?)$/i;
     const sendMatch = rawMsg.match(sendRegex);
     if (sendMatch) {
       const [, recipient, amount] = sendMatch;
@@ -285,15 +285,19 @@ export const ChatbotService = {
     }
 
 
-    // --- /send [phone] [amount] ---
+    // --- /send [phone_or_address] [amount] ---
     if (msg.startsWith('/send')) {
       const parts = rawMsg.split(' ');
-      const targetPhoneInput = parts[1];
+      const targetRecipient = parts[1];
       const amountStr = parts[2];
 
 
-      if (!targetPhoneInput || !amountStr) {
-        return 'Usage: send [phone_number] [amount_kas]\nExample: send 08123456789 10';
+      if (!targetRecipient || !amountStr) {
+        return (
+          " Usage: *send [phone_or_address] [amount_kas]*\n\n" +
+          "• Internal Transfer: `send 08012345678 10`\n" +
+          "• External Wallet: `send kaspa:qq123... 10`"
+        );
       }
 
 
@@ -303,11 +307,46 @@ export const ChatbotService = {
       }
 
 
-      const normalizedTargetPhone = normalizePhone(targetPhoneInput);
+      if (!user) {
+        return "You'll need a wallet first — just say Hi and I'll get you set up.";
+      }
+
+
+      if (user.balance < amount) {
+        return ` Insufficient balance. You have *${user.balance.toFixed(4)} KAS*.`;
+      }
+
+
+      // CASE A: EXTERNAL KASPA ADDRESS (Starts with "kaspa:" or "kasptest:")
+      if (targetRecipient.toLowerCase().startsWith('kaspa:') || targetRecipient.toLowerCase().startsWith('kasptest:')) {
+        const txResult = await KaspaService.sendExternalTransaction(user.mnemonic, targetRecipient, amount);
+
+
+        if (!txResult.success) {
+          return `❌ *Transfer Failed:* ${txResult.error}`;
+        }
+
+
+        user.balance -= amount;
+        await user.save();
+
+
+        return (
+          `✅ *On-Chain Transfer Successful!*\n\n` +
+          `• *Sent:* ${amount} KAS\n` +
+          `• *Recipient:* \`${targetRecipient.slice(0, 12)}...${targetRecipient.slice(-6)}\`\n` +
+          `• *TXID:* \`${txResult.txId}\`\n\n` +
+          `💳 *New Balance:* ${user.balance.toFixed(4)} KAS`
+        );
+      }
+
+
+      // CASE B: INTERNAL PHONE TRANSFER (Kasapp to Kasapp)
+      const normalizedTargetPhone = normalizePhone(targetRecipient);
 
 
       if (normalizedTargetPhone === senderPhone) {
-        return "You can't transfer KAS to your own number!";
+        return " You can't transfer KAS to your own phone number!";
       }
 
 
@@ -344,7 +383,7 @@ export const ChatbotService = {
 
 
       return (
-        `✅ *Transfer Successful!*\n\n` +
+        `✅ *Internal Transfer Successful!*\n\n` +
         `Sent *${amount} KAS* to *${normalizedTargetPhone}*.\n` +
         `Your new balance is *${sender.balance.toFixed(4)} KAS*.`
       );
@@ -354,15 +393,32 @@ export const ChatbotService = {
     // --- /redeem [code] ---
     if (msg.startsWith('/redeem')) {
       const parts = rawMsg.split(' ');
-      if (parts.length < 2) return 'Just need the code!\nUsage: redeem [code]';
-      if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
+      if (parts.length < 2) return 'Just need the code!\nUsage: redeem [code]\nExample: `redeem KASP-1234-5678`';
+      
+      let currentUser = user;
+      if (!currentUser) {
+        const { publicKey, secret } = await KaspaService.generateWallet();
+        currentUser = await UserModel.create({
+          phone: senderPhone,
+          walletAddress: publicKey,
+          mnemonic: secret,
+          balance: 0,
+        });
+      }
 
 
       const code = normalizeVoucherCode(parts[1]);
-      const card = await RechargeCardModel.findOne({ code, used: false });
+      const card = await RechargeCardModel.findOne({ code });
 
 
-      if (!card) return "That code doesn't look valid, or it's already been used. Double-check it and try again?";
+      if (!card) {
+        return "❌ *Invalid Voucher Code.* Please check the code and try again.";
+      }
+
+
+      if (card.used) {
+        return `❌ *Voucher Already Used.*\nThis code was redeemed on ${new Date(card.usedAt!).toLocaleDateString()}.`;
+      }
 
 
       card.used = true;
@@ -371,11 +427,17 @@ export const ChatbotService = {
       await card.save();
 
 
-      user.balance += card.amount;
-      await user.save();
+      currentUser.balance += card.amount;
+      await currentUser.save();
 
 
-      return 'Nice, that worked! 🎉 ' + card.amount + ' KAS just landed in your wallet.';
+      return (
+        `🎉 *Voucher Successfully Redeemed!*\n\n` +
+        `• *Amount Credited:* +${card.amount.toFixed(4)} KAS\n` +
+        `• *Voucher Code:* \`${card.code}\`\n\n` +
+        `💳 *Your New Balance:* *${currentUser.balance.toFixed(4)} KAS*\n\n` +
+        `Type *help* to spend your KAS on airtime, data, or utility bills!`
+      );
     }
 
 
@@ -498,19 +560,20 @@ export const ChatbotService = {
         `• */setpin [4-6 digits]* — Set or update security PIN`,
         `• *export* — View recovery phrase (requires PIN)\n`,
         `⚡ *INSTANT TRANSFERS & TOP-UPS*`,
-        `• *send [phone] [amount]*`,
-        `  _Example: send 08012345678 10_`,
+        `• *send [phone_or_address] [amount]*`,
+        `   _Phone: send 08012345678 10_`,
+        `   _External: send kaspa:qq123... 10_`,
         `• *redeem [code]*`,
-        `  _Example: redeem MH29-XXXX-XXXX_\n`,
+        `   _Example: redeem KASP-XXXX-XXXX_\n`,
         `💡 *UTILITY BILLS (1-TAP)*`,
         `• *airtime [network] [phone] [naira]*`,
-        `  _Example: airtime MTN 08012345678 1000_`,
+        `   _Example: airtime MTN 08012345678 1000_`,
         `• *electricity [provider] [meter] [naira]*`,
-        `  _Example: electricity IKEDC 1234567890 5000_`,
+        `   _Example: electricity IKEDC 1234567890 5000_`,
         `• *cable [provider] [smartcard] [naira]*`,
-        `  _Example: cable DSTV 1234567890 8500_`,
+        `   _Example: cable DSTV 1234567890 8500_`,
         `• *water [provider] [account] [naira]*`,
-        `  _Example: water LSWC 1234567890 3000_\n`,
+        `   _Example: water LSWC 1234567890 3000_\n`,
         `🔄 *AUTOMATION & AUTOPILOT*`,
         `• *auto* — Set up & manage recurring bill payments`
       ].join('\n');

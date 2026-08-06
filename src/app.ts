@@ -29,6 +29,7 @@ import messageRoutes from './routes/message.routes';
 import adminRoutes from './routes/admin.routes';
 import billpayRoutes from './routes/billpay.routes';
 import whatsappRoutes from './routes/whatsapp.routes'; // <-- 1. IMPORT HERE
+import paymentRoutes from './routes/payment.routes';
 
 
 const app = express();
@@ -44,7 +45,7 @@ app.use('/api/redeem', redeemRoutes);
 app.use('/api', messageRoutes);
 app.use('/api', waitlistRoutes);
 app.use('/api', whatsappRoutes); // <-- 2. MOUNT HERE (Exposes /api/whatsapp/webhook)
-
+app.use('/api', paymentRoutes);
 
 app.get('/health', (_req: any, res: any) => {
   res.json({ status: 'OK', product: 'Kasapp' });

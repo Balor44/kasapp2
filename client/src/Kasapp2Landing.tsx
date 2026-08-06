@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Menu, X, ArrowRight, Zap, Shield, MessageSquare, Clock,
-  ExternalLink, GraduationCap, CheckCircle, Sparkles, Copy, Check, 
-  Smartphone, Lightbulb, Tv
+  ExternalLink, GraduationCap, CheckCircle, Sparkles, Copy, Check,
+  Smartphone, Lightbulb, Tv, ShoppingBag, Send, ArrowLeft
 } from 'lucide-react';
 import { BlockDAGWatermark } from './components/BlockDAGAnimation';
 
@@ -15,12 +15,31 @@ interface Message {
 }
 
 
+const BOT_PHONE_NUMBER = import.meta.env.VITE_WHATSAPP_BOT_NUMBER || '2348000000000'; // E.164 format without '+'
+
+
 export default function KasappLanding() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [phone, setPhone] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [number, setNumber] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+
+
+  // Voucher Checkout Modal State
+  const [showBuyModal, setShowBuyModal] = useState(false);
+  const [buyEmail, setBuyEmail] = useState('');
+  const [buyPhone, setBuyPhone] = useState('');
+  const [buyAmount, setBuyAmount] = useState('1000');
+  const [isInitializing, setIsInitializing] = useState(false);
+
+
+  // Step 3 Payment Success State (Voucher generated after checkout)
+  const [purchasedVoucher, setPurchasedVoucher] = useState<{
+    code: string;
+    amountKas: number;
+    amountNaira: number;
+  } | null>(null);
 
 
   // Interactive WhatsApp Simulation State
@@ -44,6 +63,67 @@ export default function KasappLanding() {
 
 
   const API_BASE = import.meta.env.VITE_API_URL || '/api';
+
+
+  // Listen for URL query params when redirected back from Flutterwave checkout
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const voucherCode = urlParams.get('voucher_code') || urlParams.get('code');
+    const kasAmount = urlParams.get('kas') || urlParams.get('amountKas');
+    const nairaAmount = urlParams.get('naira') || urlParams.get('amountNaira');
+
+
+    if (voucherCode && kasAmount) {
+      setPurchasedVoucher({
+        code: voucherCode,
+        amountKas: parseFloat(kasAmount),
+        amountNaira: parseFloat(nairaAmount || '1000'),
+      });
+    }
+  }, []);
+
+
+  const openWhatsAppDirect = () => {
+    const text = encodeURIComponent("Hi, I want to buy a Kasapp voucher.");
+    window.open(`https://wa.me/${BOT_PHONE_NUMBER}?text=${text}`, '_blank');
+  };
+
+
+  const handlePurchaseVoucher = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsInitializing(true);
+    try {
+      const res = await fetch(`${API_BASE}/payment/initialize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: buyEmail,
+          phone: buyPhone,
+          amountNaira: Number(buyAmount),
+          currency: 'NGN',
+          redirect_url: `${window.location.origin}/payment-success`,
+        }),
+      });
+
+
+      const data = await res.json();
+      if (res.ok && data.payment_url) {
+        window.location.href = data.payment_url;
+      } else {
+        alert(data.error || 'Failed to initialize payment gateway.');
+      }
+    } catch {
+      alert('Network error initializing payment gateway.');
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
+
+  const buildWaRedeemLink = (code: string) => {
+    const text = encodeURIComponent(`redeem ${code}`);
+    return `https://wa.me/${BOT_PHONE_NUMBER}?text=${text}`;
+  };
 
 
   const joinWaitlist = async (e?: React.FormEvent) => {
@@ -123,6 +203,83 @@ export default function KasappLanding() {
       ]);
     }, 3800);
   };
+
+
+  // --------------------------------------------------------------------------
+  // PAGE VIEW 3: STEP 3 - DEDICATED PAYMENT SUCCESS VIEW (VOUCHER PURCHASED)
+  // --------------------------------------------------------------------------
+  if (purchasedVoucher) {
+    return (
+      <div className="min-h-screen bg-[#F6F8F6] text-zinc-800 font-sans flex flex-col justify-between relative overflow-hidden">
+        <div className="absolute inset-0 z-0 opacity-60">
+          <BlockDAGWatermark />
+        </div>
+
+
+        <main className="relative z-10 container mx-auto px-6 py-12 max-w-md my-auto text-center">
+          <div className="bg-white/95 backdrop-blur-md p-8 rounded-3xl border border-zinc-200/90 shadow-2xl flex flex-col items-center">
+            
+            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mb-4 shadow-sm animate-bounce">
+              <CheckCircle size={36} />
+            </div>
+
+
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full mb-2">
+              Payment Successful 🎉
+            </span>
+
+
+            <h1 className="text-2xl font-extrabold text-zinc-900 mb-1">
+              Your Kasapp Voucher is Ready
+            </h1>
+            <p className="text-xs text-zinc-500 mb-6">
+              Tap below to redeem on WhatsApp instantly with zero typing.
+            </p>
+
+
+            {/* Voucher Code Box */}
+            <div className="w-full bg-[#F8FAF8] border-2 border-dashed border-emerald-400 rounded-2xl p-5 mb-6 text-center">
+              <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">Voucher Code</span>
+              <span className="text-3xl font-mono font-black text-emerald-700 tracking-wider block">
+                {purchasedVoucher.code}
+              </span>
+              <span className="text-xs text-zinc-500 mt-2 block font-medium">
+                Value: <strong>{purchasedVoucher.amountKas.toFixed(2)} KAS</strong> (₦{purchasedVoucher.amountNaira.toLocaleString()})
+              </span>
+            </div>
+
+
+            {/* 1-TAP AUTO-REDEEM ON WHATSAPP BUTTON */}
+            <a
+              href={buildWaRedeemLink(purchasedVoucher.code)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-3.5 px-4 bg-[#25D366] hover:bg-[#20bd5a] text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg transition-transform hover:scale-[1.02]"
+            >
+              <Send size={18} />
+              Auto-Redeem on WhatsApp
+            </a>
+
+
+            <button
+              onClick={() => {
+                setPurchasedVoucher(null);
+                window.history.replaceState({}, document.title, window.location.pathname);
+              }}
+              className="text-xs text-zinc-400 hover:text-zinc-600 mt-5 underline font-medium flex items-center justify-center gap-1"
+            >
+              <ArrowLeft size={12} /> Back to Home
+            </button>
+          </div>
+        </main>
+
+
+        <footer className="relative z-10 py-6 text-center text-xs text-zinc-400">
+          © 2026 Kasapp. Built for the Kaspa Ecosystem.
+        </footer>
+      </div>
+    );
+  }
 
 
   // --------------------------------------------------------------------------
@@ -239,11 +396,11 @@ export default function KasappLanding() {
   // --------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#F6F8F6] text-zinc-800 font-sans relative overflow-hidden selection:bg-emerald-100 selection:text-emerald-900">
-      
+     
       {/* NAVIGATION BAR */}
       <header className="sticky top-0 z-50 bg-[#F6F8F6]/90 backdrop-blur-md border-b border-zinc-200/80">
         <nav className="container mx-auto px-6 py-4 flex items-center justify-between">
-          
+         
           {/* BRAND LOGO */}
           <div className="flex items-center gap-3">
             <svg
@@ -287,10 +444,19 @@ export default function KasappLanding() {
           </div>
 
 
-          <div className="hidden md:flex items-center gap-4">
-            <a href="#waitlist" className="bg-emerald-600 text-white px-5 py-2.5 rounded-full font-medium hover:bg-emerald-700 transition-all shadow-sm flex items-center gap-2 text-sm">
-              Join Waitlist <ArrowRight size={15} />
-            </a>
+          <div className="hidden md:flex items-center gap-3">
+            <button
+              onClick={openWhatsAppDirect}
+              className="bg-[#25D366] text-white px-4 py-2.5 rounded-full font-semibold hover:bg-[#20bd5a] transition text-xs flex items-center gap-1.5 shadow-sm"
+            >
+              <MessageSquare size={14} /> Buy on WhatsApp
+            </button>
+            <button
+              onClick={() => setShowBuyModal(true)}
+              className="bg-emerald-600 text-white px-4 py-2.5 rounded-full font-semibold hover:bg-emerald-700 transition text-xs flex items-center gap-1.5 shadow-sm"
+            >
+              <ShoppingBag size={14} /> Buy Voucher Online
+            </button>
           </div>
 
 
@@ -308,7 +474,18 @@ export default function KasappLanding() {
             <a href="https://kaspa.university" target="_blank" rel="noopener noreferrer" className="py-2 text-emerald-600 font-medium flex items-center gap-2">
               <GraduationCap size={16} /> Kaspa University
             </a>
-            <a href="#waitlist" onClick={() => setMenuOpen(false)} className="py-2 text-emerald-600 font-semibold">Join Waitlist</a>
+            <button
+              onClick={() => { setMenuOpen(false); openWhatsAppDirect(); }}
+              className="py-2 text-[#25D366] font-semibold text-left flex items-center gap-2"
+            >
+              <MessageSquare size={16} /> Buy on WhatsApp
+            </button>
+            <button
+              onClick={() => { setMenuOpen(false); setShowBuyModal(true); }}
+              className="py-2 text-emerald-600 font-semibold text-left flex items-center gap-2"
+            >
+              <ShoppingBag size={16} /> Buy Voucher Online
+            </button>
           </div>
         )}
       </header>
@@ -323,10 +500,10 @@ export default function KasappLanding() {
 
         <div className="container mx-auto px-6 relative z-10 max-w-7xl">
           <div className="grid lg:grid-cols-12 gap-12 items-center">
-            
+           
             {/* LEFT COLUMN */}
             <div className="lg:col-span-6 flex flex-col gap-6 text-left">
-              
+             
               <div className="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3.5 py-1.5 rounded-full border border-emerald-200 text-xs font-semibold w-fit">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 WhatsApp Utility Layer on Kaspa
@@ -345,26 +522,46 @@ export default function KasappLanding() {
               </p>
 
 
-              {/* Waitlist Form */}
-              <form id="waitlist" onSubmit={joinWaitlist} className="flex flex-col sm:flex-row gap-3 pt-2">
-                <div className="flex-1 bg-white p-1.5 rounded-2xl border border-zinc-300 shadow-sm flex items-center">
-                  <input
-                    type="tel"
-                    required
-                    placeholder="WhatsApp number..."
-                    className="w-full bg-transparent px-4 py-3 outline-none text-zinc-800 placeholder:text-zinc-400 text-sm font-medium"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                  />
+              {/* Waitlist & Direct Purchase Buttons */}
+              <div className="flex flex-col gap-3 pt-2">
+                <form id="waitlist" onSubmit={joinWaitlist} className="flex flex-col sm:flex-row gap-3">
+                  <div className="flex-1 bg-white p-1.5 rounded-2xl border border-zinc-300 shadow-sm flex items-center">
+                    <input
+                      type="tel"
+                      required
+                      placeholder="WhatsApp number..."
+                      className="w-full bg-transparent px-4 py-3 outline-none text-zinc-800 placeholder:text-zinc-400 text-sm font-medium"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                    />
+                    <button
+                      type="submit"
+                      disabled={status === 'loading'}
+                      className="bg-emerald-600 text-white px-5 py-3 rounded-xl font-semibold hover:bg-emerald-700 transition-colors text-sm whitespace-nowrap disabled:opacity-50"
+                    >
+                      {status === 'loading' ? 'Joining...' : 'Join Waitlist'}
+                    </button>
+                  </div>
+                </form>
+
+
+                <div className="flex flex-col sm:flex-row gap-3">
                   <button
-                    type="submit"
-                    disabled={status === 'loading'}
-                    className="bg-emerald-600 text-white px-5 py-3 rounded-xl font-semibold hover:bg-emerald-700 transition-colors text-sm whitespace-nowrap disabled:opacity-50"
+                    onClick={openWhatsAppDirect}
+                    className="py-3 px-5 bg-[#25D366] hover:bg-[#20bd5a] text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition"
                   >
-                    {status === 'loading' ? 'Joining...' : 'Join on WhatsApp'}
+                    <MessageSquare size={16} /> Initiate Purchase on WhatsApp
+                  </button>
+
+
+                  <button
+                    onClick={() => setShowBuyModal(true)}
+                    className="py-3 px-5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition"
+                  >
+                    <ShoppingBag size={16} /> Buy Voucher Online
                   </button>
                 </div>
-              </form>
+              </div>
 
 
               {status === 'error' && (
@@ -390,12 +587,12 @@ export default function KasappLanding() {
             </div>
 
 
-            {/* RIGHT COLUMN: Interactive WhatsApp Phone Mockup with Live KAS/NGN & Bill Pay Simulation */}
+            {/* RIGHT COLUMN: Interactive WhatsApp Phone Mockup */}
             <div className="lg:col-span-6 grid sm:grid-cols-12 gap-6 items-center">
-              
+             
               <div className="sm:col-span-7 flex justify-center">
                 <div className="w-[300px] bg-zinc-900 rounded-[40px] p-3 shadow-2xl border-4 border-zinc-800 flex flex-col">
-                  
+                 
                   {/* WhatsApp Header */}
                   <div className="bg-[#075E54] text-white p-3 rounded-t-[30px] flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -485,7 +682,7 @@ export default function KasappLanding() {
       {/* CORE UTILITIES SHOWCASE SECTION */}
       <section id="utilities" className="py-16 bg-white border-t border-zinc-200">
         <div className="container mx-auto px-6 max-w-6xl">
-          
+         
           <div className="text-center mb-12">
             <span className="text-emerald-600 font-semibold text-xs uppercase tracking-widest block">Everyday Utility</span>
             <h2 className="text-3xl font-extrabold text-zinc-900 mt-1">Everything You Can Do on Kasapp</h2>
@@ -496,7 +693,7 @@ export default function KasappLanding() {
 
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            
+           
             <div className="bg-[#F8FAF8] p-6 rounded-2xl border border-zinc-200/80 flex flex-col gap-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
                 <Smartphone size={20} />
@@ -575,6 +772,83 @@ export default function KasappLanding() {
           </div>
         </div>
       </section>
+
+
+      {/* ONLINE BUY VOUCHER MODAL */}
+      {showBuyModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
+            <button
+              onClick={() => setShowBuyModal(false)}
+              className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-700 p-1"
+            >
+              <X size={20} />
+            </button>
+
+
+            <div className="flex items-center gap-2 mb-1">
+              <div className="p-2 bg-emerald-100 text-emerald-600 rounded-xl">
+                <ShoppingBag size={20} />
+              </div>
+              <h3 className="text-xl font-extrabold text-zinc-900">Buy Kasapp Voucher</h3>
+            </div>
+            <p className="text-xs text-zinc-500 mb-5">Pay via Bank Transfer, Debit Card, or USSD via Flutterwave.</p>
+
+
+            <form onSubmit={handlePurchaseVoucher} className="flex flex-col gap-3.5">
+              <div>
+                <label className="text-[11px] font-bold text-zinc-700 block mb-1">WhatsApp Phone Number</label>
+                <input
+                  type="tel"
+                  required
+                  placeholder="e.g. 08012345678"
+                  value={buyPhone}
+                  onChange={(e) => setBuyPhone(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-emerald-500 focus:bg-white transition"
+                />
+              </div>
+
+
+              <div>
+                <label className="text-[11px] font-bold text-zinc-700 block mb-1">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="name@example.com"
+                  value={buyEmail}
+                  onChange={(e) => setBuyEmail(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-emerald-500 focus:bg-white transition"
+                />
+              </div>
+
+
+              <div>
+                <label className="text-[11px] font-bold text-zinc-700 block mb-1">Voucher Amount (NGN)</label>
+                <select
+                  value={buyAmount}
+                  onChange={(e) => setBuyAmount(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-emerald-500 focus:bg-white font-semibold transition"
+                >
+                  <option value="500">₦500 NGN</option>
+                  <option value="1000">₦1,000 NGN</option>
+                  <option value="2000">₦2,000 NGN</option>
+                  <option value="5000">₦5,000 NGN</option>
+                  <option value="10000">₦10,000 NGN</option>
+                </select>
+              </div>
+
+
+              <button
+                type="submit"
+                disabled={isInitializing}
+                className="w-full mt-2 py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center justify-center gap-2"
+              >
+                {isInitializing ? 'Redirecting to Flutterwave...' : 'Proceed to Checkout 💳'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
 
       {/* FOOTER */}

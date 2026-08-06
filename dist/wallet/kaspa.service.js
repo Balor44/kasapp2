@@ -32,6 +32,7 @@ const bip39 = __importStar(require("bip39"));
 const isomorphic_ws_1 = __importDefault(require("isomorphic-ws"));
 globalThis.WebSocket = isomorphic_ws_1.default;
 const kaspa = __importStar(require("kaspa-wasm"));
+const crypto_utils_1 = require("../utils/crypto.utils");
 const NETWORK = "testnet-10";
 const DERIVATION_PATH = "m/44'/111111'/0'/0/0";
 exports.KaspaService = {
@@ -106,6 +107,39 @@ exports.KaspaService = {
         }
         finally {
             await rpc.disconnect();
+        }
+    },
+    /**
+     * Wrapper for ChatbotService to send KAS to external Kaspa addresses.
+     * Decrypts mnemonic and executes sendKAS via kaspa-wasm.
+     */
+    sendExternalTransaction: async (senderEncryptedMnemonic, recipientAddress, amountKas) => {
+        try {
+            // 1. Decrypt user's mnemonic seed phrase
+            const rawMnemonic = (0, crypto_utils_1.decryptMnemonic)(senderEncryptedMnemonic, process.env.ENCRYPTION_KEY || "");
+            // 2. Validate prefix matches current network mode
+            const isMainnet = recipientAddress.toLowerCase().startsWith("kaspa:");
+            const isTestnet = recipientAddress.toLowerCase().startsWith("kasptest:");
+            if (!isMainnet && !isTestnet) {
+                return {
+                    success: false,
+                    error: "Invalid Kaspa address format. Address must start with 'kaspa:' or 'kasptest:'.",
+                };
+            }
+            // 3. Broadcast transaction using kaspa-wasm RPC generator
+            const txId = await exports.KaspaService.sendKAS(rawMnemonic, recipientAddress, amountKas);
+            console.log(`[Kaspa On-Chain TX] Sent ${amountKas} KAS to ${recipientAddress} | TXID: ${txId}`);
+            return {
+                success: true,
+                txId,
+            };
+        }
+        catch (error) {
+            console.error("[Kaspa On-Chain TX Error]:", error);
+            return {
+                success: false,
+                error: error?.message || "Failed to broadcast on-chain Kaspa transaction.",
+            };
         }
     },
 };
