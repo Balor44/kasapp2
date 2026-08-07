@@ -34,7 +34,7 @@ export default function KasappLanding() {
   const [isInitializing, setIsInitializing] = useState(false);
 
 
-  // Step 3 Payment Success State (Voucher generated after checkout)
+  // Post-Purchase Voucher State (Generated after Flutterwave checkout)
   const [purchasedVoucher, setPurchasedVoucher] = useState<{
     code: string;
     amountKas: number;
@@ -43,7 +43,7 @@ export default function KasappLanding() {
 
 
   // Interactive WhatsApp Simulation State
-  const kasRate = 250; // 1 KAS ~ ₦250 NGN (Example exchange rate)
+  const kasRate = 250; // 1 KAS ~ ₦250 NGN
   const [kasBalance, setKasBalance] = useState<number>(1250.50);
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const [simulatedMessages, setSimulatedMessages] = useState<Message[]>([
@@ -65,7 +65,7 @@ export default function KasappLanding() {
   const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 
-  // Listen for URL query params when redirected back from Flutterwave checkout
+  // State Detection: Listen for URL query params when redirected back from Flutterwave checkout
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const voucherCode = urlParams.get('voucher_code') || urlParams.get('code');
@@ -84,8 +84,7 @@ export default function KasappLanding() {
 
 
   const openWhatsAppDirect = () => {
-    const text = encodeURIComponent("Hi, I want to buy a Kasapp voucher.");
-    window.open(`https://wa.me/${BOT_PHONE_NUMBER}?text=${text}`, '_blank');
+    window.open(`https://wa.me/${BOT_PHONE_NUMBER}`, '_blank');
   };
 
 
@@ -101,7 +100,7 @@ export default function KasappLanding() {
           phone: buyPhone,
           amountNaira: Number(buyAmount),
           currency: 'NGN',
-          redirect_url: `${window.location.origin}/payment-success`,
+          redirect_url: `${window.location.origin}/`,
         }),
       });
 
@@ -134,7 +133,7 @@ export default function KasappLanding() {
       const res = await fetch(`${API_BASE}/waitlist`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone })
+        body: JSON.stringify({ phone }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -159,15 +158,11 @@ export default function KasappLanding() {
   };
 
 
-  // Run interactive airtime transaction in WhatsApp simulator
   const runSimulatedBillPay = () => {
     if (simulatedMessages.length > 2) return;
-
-
     setIsTyping(true);
 
 
-    // 1. User types airtime request
     setTimeout(() => {
       setIsTyping(false);
       setSimulatedMessages((prev) => [
@@ -183,10 +178,9 @@ export default function KasappLanding() {
     }, 1500);
 
 
-    // 2. Bot processes airtime & updates KAS / NGN balance
     setTimeout(() => {
       const airtimeNaira = 1000;
-      const kasDeducted = airtimeNaira / kasRate; // 4 KAS
+      const kasDeducted = airtimeNaira / kasRate;
       const newBalance = kasBalance - kasDeducted;
       setKasBalance(newBalance);
 
@@ -205,9 +199,9 @@ export default function KasappLanding() {
   };
 
 
-  // --------------------------------------------------------------------------
-  // PAGE VIEW 3: STEP 3 - DEDICATED PAYMENT SUCCESS VIEW (VOUCHER PURCHASED)
-  // --------------------------------------------------------------------------
+  // ==========================================================================
+  // STATE B: POST-PURCHASE STATE (1-TAP AUTO-REDEEM VIEW)
+  // ==========================================================================
   if (purchasedVoucher) {
     return (
       <div className="min-h-screen bg-[#F6F8F6] text-zinc-800 font-sans flex flex-col justify-between relative overflow-hidden">
@@ -218,7 +212,6 @@ export default function KasappLanding() {
 
         <main className="relative z-10 container mx-auto px-6 py-12 max-w-md my-auto text-center">
           <div className="bg-white/95 backdrop-blur-md p-8 rounded-3xl border border-zinc-200/90 shadow-2xl flex flex-col items-center">
-            
             <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mb-4 shadow-sm animate-bounce">
               <CheckCircle size={36} />
             </div>
@@ -240,7 +233,7 @@ export default function KasappLanding() {
             {/* Voucher Code Box */}
             <div className="w-full bg-[#F8FAF8] border-2 border-dashed border-emerald-400 rounded-2xl p-5 mb-6 text-center">
               <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">Voucher Code</span>
-              <span className="text-3xl font-mono font-black text-emerald-700 tracking-wider block">
+              <span className="text-3xl font-mono font-black text-emerald-700 tracking-wider block select-all">
                 {purchasedVoucher.code}
               </span>
               <span className="text-xs text-zinc-500 mt-2 block font-medium">
@@ -249,15 +242,15 @@ export default function KasappLanding() {
             </div>
 
 
-            {/* 1-TAP AUTO-REDEEM ON WHATSAPP BUTTON */}
+            {/* 1-TAP AUTO-REDEEM BUTTON */}
             <a
               href={buildWaRedeemLink(purchasedVoucher.code)}
               target="_blank"
               rel="noopener noreferrer"
-              className="w-full py-3.5 px-4 bg-[#25D366] hover:bg-[#20bd5a] text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg transition-transform hover:scale-[1.02]"
+              className="w-full py-4 px-4 bg-[#25D366] hover:bg-[#20bd5a] text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg transition-transform hover:scale-[1.02]"
             >
               <Send size={18} />
-              Auto-Redeem on WhatsApp
+              Auto-Redeem on WhatsApp 🚀
             </a>
 
 
@@ -268,7 +261,7 @@ export default function KasappLanding() {
               }}
               className="text-xs text-zinc-400 hover:text-zinc-600 mt-5 underline font-medium flex items-center justify-center gap-1"
             >
-              <ArrowLeft size={12} /> Back to Home
+              <ArrowLeft size={12} /> Buy Another Voucher
             </button>
           </div>
         </main>
@@ -282,9 +275,9 @@ export default function KasappLanding() {
   }
 
 
-  // --------------------------------------------------------------------------
-  // PAGE VIEW 2: DEDICATED WAITLIST SUCCESS PAGE
-  // --------------------------------------------------------------------------
+  // ==========================================================================
+  // WAITLIST SUCCESS VIEW
+  // ==========================================================================
   if (status === 'success') {
     return (
       <div className="min-h-screen bg-[#F6F8F6] text-zinc-800 font-sans flex flex-col justify-between relative overflow-hidden">
@@ -391,37 +384,19 @@ export default function KasappLanding() {
   }
 
 
-  // --------------------------------------------------------------------------
-  // PAGE VIEW 1: LANDING PAGE (DEFAULT)
-  // --------------------------------------------------------------------------
+  // ==========================================================================
+  // STATE A: MAIN LANDING PAGE VIEW (PRE-PURCHASE)
+  // ==========================================================================
   return (
     <div className="min-h-screen bg-[#F6F8F6] text-zinc-800 font-sans relative overflow-hidden selection:bg-emerald-100 selection:text-emerald-900">
-     
+      
       {/* NAVIGATION BAR */}
       <header className="sticky top-0 z-50 bg-[#F6F8F6]/90 backdrop-blur-md border-b border-zinc-200/80">
         <nav className="container mx-auto px-6 py-4 flex items-center justify-between">
-         
-          {/* BRAND LOGO */}
           <div className="flex items-center gap-3">
-            <svg
-              width="38"
-              height="38"
-              viewBox="0 0 100 100"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              className="shrink-0"
-            >
-              <path
-                d="M50 10C27.9086 10 10 26.1177 10 46C10 54.852 13.5186 62.9431 19.3897 69.1026L14 88L33.7226 82.2661C38.6816 84.6687 44.1834 86 50 86C72.0914 86 90 69.8823 90 50C90 30.1177 72.0914 10 50 10Z"
-                fill="#16A344"
-              />
-              <path
-                d="M36 32V68M36 50L58 32M36 50L58 68M46 50H66"
-                stroke="white"
-                strokeWidth="7"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+            <svg width="38" height="38" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+              <path d="M50 10C27.9086 10 10 26.1177 10 46C10 54.852 13.5186 62.9431 19.3897 69.1026L14 88L33.7226 82.2661C38.6816 84.6687 44.1834 86 50 86C72.0914 86 90 69.8823 90 50C90 30.1177 72.0914 10 50 10Z" fill="#16A344" />
+              <path d="M36 32V68M36 50L58 32M36 50L58 68M46 50H66" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
 
 
@@ -446,16 +421,10 @@ export default function KasappLanding() {
 
           <div className="hidden md:flex items-center gap-3">
             <button
-              onClick={openWhatsAppDirect}
-              className="bg-[#25D366] text-white px-4 py-2.5 rounded-full font-semibold hover:bg-[#20bd5a] transition text-xs flex items-center gap-1.5 shadow-sm"
-            >
-              <MessageSquare size={14} /> Buy on WhatsApp
-            </button>
-            <button
               onClick={() => setShowBuyModal(true)}
-              className="bg-emerald-600 text-white px-4 py-2.5 rounded-full font-semibold hover:bg-emerald-700 transition text-xs flex items-center gap-1.5 shadow-sm"
+              className="bg-emerald-600 text-white px-5 py-2.5 rounded-full font-bold hover:bg-emerald-700 transition text-xs flex items-center gap-2 shadow-sm"
             >
-              <ShoppingBag size={14} /> Buy Voucher Online
+              <ShoppingBag size={15} /> Buy Kaspa Voucher
             </button>
           </div>
 
@@ -475,16 +444,10 @@ export default function KasappLanding() {
               <GraduationCap size={16} /> Kaspa University
             </a>
             <button
-              onClick={() => { setMenuOpen(false); openWhatsAppDirect(); }}
-              className="py-2 text-[#25D366] font-semibold text-left flex items-center gap-2"
-            >
-              <MessageSquare size={16} /> Buy on WhatsApp
-            </button>
-            <button
               onClick={() => { setMenuOpen(false); setShowBuyModal(true); }}
-              className="py-2 text-emerald-600 font-semibold text-left flex items-center gap-2"
+              className="py-3 bg-emerald-600 text-white font-bold rounded-xl text-center flex items-center justify-center gap-2"
             >
-              <ShoppingBag size={16} /> Buy Voucher Online
+              <ShoppingBag size={16} /> Buy Kaspa Voucher
             </button>
           </div>
         )}
@@ -500,10 +463,9 @@ export default function KasappLanding() {
 
         <div className="container mx-auto px-6 relative z-10 max-w-7xl">
           <div className="grid lg:grid-cols-12 gap-12 items-center">
-           
-            {/* LEFT COLUMN */}
+            
+            {/* LEFT COLUMN: HERO ACTION */}
             <div className="lg:col-span-6 flex flex-col gap-6 text-left">
-             
               <div className="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3.5 py-1.5 rounded-full border border-emerald-200 text-xs font-semibold w-fit">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 WhatsApp Utility Layer on Kaspa
@@ -522,45 +484,50 @@ export default function KasappLanding() {
               </p>
 
 
-              {/* Waitlist & Direct Purchase Buttons */}
-              <div className="flex flex-col gap-3 pt-2">
+              {/* SINGLE FOCUS CTA SECTION */}
+              <div className="flex flex-col gap-3 pt-2 max-w-md">
+                <button
+                  onClick={() => setShowBuyModal(true)}
+                  className="w-full py-4 px-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 transition-all transform hover:scale-[1.01]"
+                >
+                  <ShoppingBag size={18} /> Buy Kaspa Voucher
+                </button>
+
+
+                <p className="text-center text-xs text-zinc-500">
+                  Already have a voucher or account?{' '}
+                  <button
+                    onClick={openWhatsAppDirect}
+                    className="text-emerald-600 font-bold underline hover:text-emerald-700"
+                  >
+                    Chat on WhatsApp
+                  </button>
+                </p>
+              </div>
+
+
+              {/* Waitlist Form */}
+              <div className="mt-4 pt-6 border-t border-zinc-200/80">
+                <p className="text-xs font-bold text-zinc-700 mb-2">Want early access for campus testing?</p>
                 <form id="waitlist" onSubmit={joinWaitlist} className="flex flex-col sm:flex-row gap-3">
                   <div className="flex-1 bg-white p-1.5 rounded-2xl border border-zinc-300 shadow-sm flex items-center">
                     <input
                       type="tel"
                       required
                       placeholder="WhatsApp number..."
-                      className="w-full bg-transparent px-4 py-3 outline-none text-zinc-800 placeholder:text-zinc-400 text-sm font-medium"
+                      className="w-full bg-transparent px-4 py-2 outline-none text-zinc-800 placeholder:text-zinc-400 text-xs font-medium"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                     />
                     <button
                       type="submit"
                       disabled={status === 'loading'}
-                      className="bg-emerald-600 text-white px-5 py-3 rounded-xl font-semibold hover:bg-emerald-700 transition-colors text-sm whitespace-nowrap disabled:opacity-50"
+                      className="bg-zinc-900 text-white px-4 py-2 rounded-xl font-semibold hover:bg-zinc-800 transition-colors text-xs whitespace-nowrap disabled:opacity-50"
                     >
                       {status === 'loading' ? 'Joining...' : 'Join Waitlist'}
                     </button>
                   </div>
                 </form>
-
-
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button
-                    onClick={openWhatsAppDirect}
-                    className="py-3 px-5 bg-[#25D366] hover:bg-[#20bd5a] text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition"
-                  >
-                    <MessageSquare size={16} /> Initiate Purchase on WhatsApp
-                  </button>
-
-
-                  <button
-                    onClick={() => setShowBuyModal(true)}
-                    className="py-3 px-5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition"
-                  >
-                    <ShoppingBag size={16} /> Buy Voucher Online
-                  </button>
-                </div>
               </div>
 
 
@@ -582,17 +549,13 @@ export default function KasappLanding() {
                 </div>
                 <span className="text-xl">⚡</span>
               </div>
-
-
             </div>
 
 
             {/* RIGHT COLUMN: Interactive WhatsApp Phone Mockup */}
             <div className="lg:col-span-6 grid sm:grid-cols-12 gap-6 items-center">
-             
               <div className="sm:col-span-7 flex justify-center">
                 <div className="w-[300px] bg-zinc-900 rounded-[40px] p-3 shadow-2xl border-4 border-zinc-800 flex flex-col">
-                 
                   {/* WhatsApp Header */}
                   <div className="bg-[#075E54] text-white p-3 rounded-t-[30px] flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -644,8 +607,6 @@ export default function KasappLanding() {
                       {simulatedMessages.length > 2 ? 'Simulation Complete ✨' : 'Simulate ₦1,000 Airtime Purchase ▶'}
                     </button>
                   </div>
-
-
                 </div>
               </div>
 
@@ -669,8 +630,6 @@ export default function KasappLanding() {
                   </div>
                 ))}
               </div>
-
-
             </div>
 
 
@@ -682,7 +641,6 @@ export default function KasappLanding() {
       {/* CORE UTILITIES SHOWCASE SECTION */}
       <section id="utilities" className="py-16 bg-white border-t border-zinc-200">
         <div className="container mx-auto px-6 max-w-6xl">
-         
           <div className="text-center mb-12">
             <span className="text-emerald-600 font-semibold text-xs uppercase tracking-widest block">Everyday Utility</span>
             <h2 className="text-3xl font-extrabold text-zinc-900 mt-1">Everything You Can Do on Kasapp</h2>
@@ -693,7 +651,6 @@ export default function KasappLanding() {
 
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-           
             <div className="bg-[#F8FAF8] p-6 rounded-2xl border border-zinc-200/80 flex flex-col gap-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
                 <Smartphone size={20} />
@@ -736,11 +693,7 @@ export default function KasappLanding() {
                 Send KAS to any WhatsApp contact or phone number with 1-second BlockDAG settlement speeds.
               </p>
             </div>
-
-
           </div>
-
-
         </div>
       </section>
 
@@ -790,9 +743,9 @@ export default function KasappLanding() {
               <div className="p-2 bg-emerald-100 text-emerald-600 rounded-xl">
                 <ShoppingBag size={20} />
               </div>
-              <h3 className="text-xl font-extrabold text-zinc-900">Buy Kasapp Voucher</h3>
+              <h3 className="text-xl font-extrabold text-zinc-900">Checkout with Flutterwave</h3>
             </div>
-            <p className="text-xs text-zinc-500 mb-5">Pay via Bank Transfer, Debit Card, or USSD via Flutterwave.</p>
+            <p className="text-xs text-zinc-500 mb-5">Pay via Bank Transfer, Debit Card, or USSD to generate your Kaspa voucher.</p>
 
 
             <form onSubmit={handlePurchaseVoucher} className="flex flex-col gap-3.5">
@@ -843,7 +796,7 @@ export default function KasappLanding() {
                 disabled={isInitializing}
                 className="w-full mt-2 py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center justify-center gap-2"
               >
-                {isInitializing ? 'Redirecting to Flutterwave...' : 'Proceed to Checkout 💳'}
+                {isInitializing ? 'Generating Payment Link...' : `Pay ₦${Number(buyAmount).toLocaleString()} with Flutterwave 💳`}
               </button>
             </form>
           </div>
@@ -855,8 +808,6 @@ export default function KasappLanding() {
       <footer className="py-6 bg-white border-t border-zinc-200 text-center text-zinc-500 text-xs">
         <p>© 2026 Kasapp. Built for the Kaspa Ecosystem.</p>
       </footer>
-
-
     </div>
   );
 }

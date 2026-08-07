@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt';
 import { UserModel } from '../models/User';
 import { RechargeCardModel } from '../models/RechargeCard';
 import { KaspaService } from '../wallet/kaspa.service';
-import { BillPayService } from './billpay.service';
+import { BillPayService } from './billpay.service'; // Ensure this points to the file where buyData is added
 import { nairaToKAS } from '../utils/price';
 import { normalizePhone } from '../utils/phone';
 import { normalizeVoucherCode } from '../utils/voucherCode';
@@ -10,6 +10,7 @@ import { handleRecurringMenu } from '../controllers/subscription.controller';
 import { getUserState, saveUserState } from './userState.service';
 import { sendWhatsAppNotification } from './whatsapp.service';
 import { decryptMnemonic } from '../utils/crypto.utils';
+import { AdminService } from './admin.service';
 
 
 export const ChatbotService = {
@@ -30,7 +31,7 @@ export const ChatbotService = {
   parse: async (phone: string, message: string): Promise<string> => {
     const rawMsg = message.trim();
     const msg = rawMsg.toLowerCase();
-    const senderPhone = normalizePhone(phone); // Standardize sender phone format
+    const senderPhone = normalizePhone(phone); // Standardize sender phone format to E.164 (+234...)
     const user = await UserModel.findOne({ phone: senderPhone });
 
 
@@ -76,7 +77,7 @@ export const ChatbotService = {
 
 
       const isMatch = await bcrypt.compare(rawMsg, user.pin);
-      
+     
       if (!isMatch) {
         userState.step = '';
         await saveUserState(senderPhone, userState);
@@ -86,7 +87,7 @@ export const ChatbotService = {
 
       try {
         const rawMnemonic = decryptMnemonic(user.mnemonic, process.env.ENCRYPTION_KEY || '');
-        
+       
         userState.step = '';
         await saveUserState(senderPhone, userState);
 
@@ -113,7 +114,7 @@ export const ChatbotService = {
     // -------------------------------------------------------------
     // 3. NATURAL LANGUAGE / NON-SLASH PATTERN MATCHING & SYNTHESIS
     // -------------------------------------------------------------
-    
+   
     // Balance Alias
     if (['balance', 'bal', 'check balance', 'my balance', 'wallet'].includes(msg)) {
       return await ChatbotService.parse(phone, '/balance');
@@ -133,7 +134,7 @@ export const ChatbotService = {
 
 
     // Airtime Natural Synthesizer: "airtime mtn 08012345678 1000" or "buy airtime mtn 08012345678 1000"
-    const airtimeRegex = /^(?:buy\s+)?airtime\s+(mtn|airtel|glo|9mobile)\s+(\d{11})\s+(\d+)$/i;
+    const airtimeRegex = /^(?:buy\s+)?airtime\s+(mtn|airtel|glo|9mobile)\s+(\+?\d{10,14})\s+(\d+)$/i;
     const airtimeMatch = rawMsg.match(airtimeRegex);
     if (airtimeMatch) {
       const [, network, targetPhone, amount] = airtimeMatch;
@@ -141,11 +142,38 @@ export const ChatbotService = {
     }
 
 
-    // Send KAS Natural Synthesizer: Supports phone numbers (080123...) AND Kaspa Addresses (kaspa:qq...)
-    const sendRegex = /^(?:send|transfer)\s+([a-zA-Z0-9:]+)\s+(\d+(?:\.\d+)?)$/i;
+    // Data Natural Synthesizer: "data mtn 08012345678 1000" or "buy data mtn 08012345678 1000"
+    const dataRegex = /^(?:buy\s+)?data\s+(mtn|airtel|glo|9mobile)\s+(\+?\d{10,14})\s+(\d+)$/i;
+    const dataMatch = rawMsg.match(dataRegex);
+    if (dataMatch) {
+      const [, network, targetPhone, amount] = dataMatch;
+      return await ChatbotService.parse(phone, `/data ${network.toUpperCase()} ${targetPhone} ${amount}`);
+    }
+
+
+    // Airtime-to-KAS Natural Synthesizer: "convert airtime mtn 1000" or "airtime to kas mtn 1000"
+    const airtimeToKasRegex = /^(?:convert\s+)?airtime\s+(?:to\s+kas\s+)?(mtn|airtel|glo|9mobile)\s+(\d+)$/i;
+    const airtimeToKasMatch = rawMsg.match(airtimeToKasRegex);
+    if (airtimeToKasMatch) {
+      const [, network, amount] = airtimeToKasMatch;
+      return await ChatbotService.parse(phone, `/convert ${network.toUpperCase()} ${amount}`);
+    }
+
+
+    // Send KAS Natural Synthesizer: Supports Global E.164 Phones (+1..., +234...) AND Kaspa Addresses (kaspa:qq...)
+    const sendRegex = /^(?:send|transfer)\s+([a-zA-Z0-9:+]+)\s+(\d+(?:\.\d+)?)$/i;
     const sendMatch = rawMsg.match(sendRegex);
     if (sendMatch) {
       const [, recipient, amount] = sendMatch;
+      return await ChatbotService.parse(phone, `/send ${recipient} ${amount}`);
+    }
+
+
+    // Alternative Send Synthesizer: "send 50 KAS to +12025550123"
+    const sendAltRegex = /^(?:send|transfer)\s+(\d+(?:\.\d+)?)\s*(?:kas)?\s*(?:to)?\s*([a-zA-Z0-9:+]+)$/i;
+    const sendAltMatch = rawMsg.match(sendAltRegex);
+    if (sendAltMatch) {
+      const [, amount, recipient] = sendAltMatch;
       return await ChatbotService.parse(phone, `/send ${recipient} ${amount}`);
     }
 
@@ -159,8 +187,8 @@ export const ChatbotService = {
     }
 
 
-    // Electricity Natural Synthesizer: "electricity ikedc 1234567890 5000" or "pay electricity ikedc 1234567890 5000"
-    const elecRegex = /^(?:pay\s+)?electricity\s+([a-zA-Z]+)\s+(\d+)\s+(\d+)$/i;
+    // Electricity Natural Synthesizer (Matches all 11 DisCos: ikedc, ekedc, aedc, kedco, phed, ibedc, eedc, kaedco, jed, bedc, yedc)
+    const elecRegex = /^(?:pay\s+)?electricity\s+(ikedc|ekedc|aedc|kedco|phed|ibedc|eedc|kaedco|jed|bedc|yedc)\s+(\d+)\s+(\d+)$/i;
     const elecMatch = rawMsg.match(elecRegex);
     if (elecMatch) {
       const [, provider, meter, amount] = elecMatch;
@@ -168,8 +196,8 @@ export const ChatbotService = {
     }
 
 
-    // Cable TV Natural Synthesizer: "cable dstv 1234567890 8500" or "pay cable dstv 1234567890 8500"
-    const cableRegex = /^(?:pay\s+)?cable\s+([a-zA-Z]+)\s+(\d+)\s+(\d+)$/i;
+    // Cable TV Natural Synthesizer (Matches DSTV, GOTV, StarTimes, Showmax)
+    const cableRegex = /^(?:pay\s+)?cable\s+(dstv|gotv|startimes|showmax)\s+(\d+)\s+(\d+)$/i;
     const cableMatch = rawMsg.match(cableRegex);
     if (cableMatch) {
       const [, provider, smartcard, amount] = cableMatch;
@@ -177,7 +205,7 @@ export const ChatbotService = {
     }
 
 
-    // Water Bill Natural Synthesizer: "water lswc 1234567890 3000" or "pay water lswc 1234567890 3000"
+    // Water Bill Natural Synthesizer: "water lswc 1234567890 3000"
     const waterRegex = /^(?:pay\s+)?water\s+([a-zA-Z]+)\s+(\d+)\s+(\d+)$/i;
     const waterMatch = rawMsg.match(waterRegex);
     if (waterMatch) {
@@ -189,6 +217,17 @@ export const ChatbotService = {
     // -------------------------------------------------------------
     // 4. STANDARD COMMAND EXECUTORS
     // -------------------------------------------------------------
+    // -------------------------------------------------------------
+    // ADMIN GATEWAY (Hidden from normal users)
+    // -------------------------------------------------------------
+    if (msg.startsWith('/admin')) { 
+      if (AdminService.isAdmin(senderPhone)) {
+        return await AdminService.processCommand(senderPhone, rawMsg);
+      } else {
+        // If a non-admin tries to run this, fail silently by letting it fall through 
+        // to the default "I didn't quite catch that" response at the bottom.
+      }
+    }
     if (msg === 'hi' || msg === 'hello' || msg === 'start') {
       if (user) {
         return "Hey, welcome back! 👋\nYou've got " + user.balance.toFixed(4) + ' KAS sitting in your wallet.\n\nType *help* if you need a reminder of what I can do.';
@@ -295,7 +334,8 @@ export const ChatbotService = {
       if (!targetRecipient || !amountStr) {
         return (
           " Usage: *send [phone_or_address] [amount_kas]*\n\n" +
-          "• Internal Transfer: `send 08012345678 10`\n" +
+          "• Global Transfer: `send +12025550123 10`\n" +
+          "• Local Transfer: `send 08012345678 10`\n" +
           "• External Wallet: `send kaspa:qq123... 10`"
         );
       }
@@ -341,8 +381,13 @@ export const ChatbotService = {
       }
 
 
-      // CASE B: INTERNAL PHONE TRANSFER (Kasapp to Kasapp)
+      // CASE B: GLOBAL PHONE TRANSFER (E.164 Normalized Kasapp to Kasapp)
       const normalizedTargetPhone = normalizePhone(targetRecipient);
+
+
+      if (!normalizedTargetPhone) {
+        return "❌ Invalid phone number. Please include the country code for international numbers (e.g. +12025550123).";
+      }
 
 
       if (normalizedTargetPhone === senderPhone) {
@@ -362,19 +407,28 @@ export const ChatbotService = {
       }
 
 
-      const recipient = await UserModel.findOneAndUpdate(
-        { phone: normalizedTargetPhone },
-        { $inc: { balance: amount } },
-        { upsert: true, new: true }
-      );
+      // Fetch or Auto-Onboard Recipient Wallet
+      let recipientUser = await UserModel.findOne({ phone: normalizedTargetPhone });
+      if (!recipientUser) {
+        const { publicKey, secret } = await KaspaService.generateWallet();
+        recipientUser = await UserModel.create({
+          phone: normalizedTargetPhone,
+          walletAddress: publicKey,
+          mnemonic: secret,
+          balance: amount,
+        });
+      } else {
+        recipientUser.balance += amount;
+        await recipientUser.save();
+      }
 
 
       const recipientNotificationText =
         `🎉 *You received KAS!*\n\n` +
         `• *Amount:* ${amount} KAS\n` +
         `• *From:* ${senderPhone}\n` +
-        `• *New Balance:* ${recipient.balance.toFixed(4)} KAS\n\n` +
-        `Type *balance* to view your total wallet funds or *help* to spend it on utility bills!`;
+        `• *New Balance:* ${recipientUser.balance.toFixed(4)} KAS\n\n` +
+        `Type *balance* to view your total wallet funds or *help* to spend it!`;
 
 
       sendWhatsAppNotification(normalizedTargetPhone, recipientNotificationText).catch((err) => {
@@ -383,7 +437,7 @@ export const ChatbotService = {
 
 
       return (
-        `✅ *Internal Transfer Successful!*\n\n` +
+        `✅ *Transfer Successful!*\n\n` +
         `Sent *${amount} KAS* to *${normalizedTargetPhone}*.\n` +
         `Your new balance is *${sender.balance.toFixed(4)} KAS*.`
       );
@@ -394,7 +448,7 @@ export const ChatbotService = {
     if (msg.startsWith('/redeem')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 2) return 'Just need the code!\nUsage: redeem [code]\nExample: `redeem KASP-1234-5678`';
-      
+     
       let currentUser = user;
       if (!currentUser) {
         const { publicKey, secret } = await KaspaService.generateWallet();
@@ -468,10 +522,64 @@ export const ChatbotService = {
     }
 
 
+    // --- /data [network] [phone] [amount_naira] ---
+    if (msg.startsWith('/data')) {
+      const parts = rawMsg.split(' ');
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: data [network] [phone] [amount in naira]\nExample: `data MTN 08012345678 1000`';
+      if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
+
+
+      const network = parts[1].toUpperCase();
+      const targetPhone = normalizePhone(parts[2]);
+      const amountNaira = parseFloat(parts[3]);
+      if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
+
+
+      const requiredKAS = await nairaToKAS(amountNaira);
+      if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
+
+
+      const result = await BillPayService.buyData(targetPhone, amountNaira, network);
+      if (!result.success) return result.message;
+
+
+      user.balance -= requiredKAS;
+      await user.save();
+      return `${result.message}\n💳 *Deducted:* ${requiredKAS.toFixed(4)} KAS`;
+    }
+
+
+    // --- /convert [network] [amount_naira] (Airtime to KAS) ---
+    if (msg.startsWith('/convert')) {
+      const parts = rawMsg.split(' ');
+      if (parts.length < 3) return 'Usage: convert [network] [airtime_naira_amount]\nExample: `convert MTN 1000`';
+      if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
+
+
+      const network = parts[1].toUpperCase();
+      const amountNaira = parseFloat(parts[2]);
+
+
+      if (isNaN(amountNaira) || amountNaira <= 0) return "Invalid airtime amount.";
+
+
+      const kasEquivalent = await nairaToKAS(amountNaira * 0.85); // 15% VTU processing fee margin
+
+
+      return (
+        `📱 *Airtime to KAS Swap Request*\n\n` +
+        `• *Network:* ${network}\n` +
+        `• *Airtime Value:* ₦${amountNaira.toLocaleString()}\n` +
+        `• *You Receive:* ~${kasEquivalent.toFixed(4)} KAS (after 15% provider fee)\n\n` +
+        `To complete, transfer ₦${amountNaira} airtime to our operational line (*08012345678*), then reply with your transfer reference.`
+      );
+    }
+
+
     // --- /electricity ---
     if (msg.startsWith('/electricity')) {
       const parts = rawMsg.split(' ');
-      if (parts.length < 4) return 'I need a few more details for that.\nUsage: electricity [provider] [meter number] [amount in naira]\nExample: electricity IKEDC 1234567890 5000';
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: electricity [provider] [meter number] [amount in naira]\nExample: electricity IKEDC 1234567890 5000\nSupported: IKEDC, EKEDC, AEDC, KEDCO, PHED, IBEDC, EEDC, KAEDCO, JED, BEDC, YEDC';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
 
 
@@ -525,7 +633,7 @@ export const ChatbotService = {
     // --- /cable ---
     if (msg.startsWith('/cable')) {
       const parts = rawMsg.split(' ');
-      if (parts.length < 4) return 'I need a few more details for that.\nUsage: cable [provider] [smartcard number] [amount in naira]\nExample: cable DSTV 1234567890 8500';
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: cable [provider] [smartcard number] [amount in naira]\nExample: cable DSTV 1234567890 8500\nSupported: DSTV, GOTV, STARTIMES, SHOWMAX';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
 
 
@@ -559,19 +667,24 @@ export const ChatbotService = {
         `• *balance* — Check your live KAS wallet balance`,
         `• */setpin [4-6 digits]* — Set or update security PIN`,
         `• *export* — View recovery phrase (requires PIN)\n`,
-        `⚡ *INSTANT TRANSFERS & TOP-UPS*`,
+        `⚡ *GLOBAL TRANSFERS & TOP-UPS*`,
         `• *send [phone_or_address] [amount]*`,
-        `   _Phone: send 08012345678 10_`,
-        `   _External: send kaspa:qq123... 10_`,
+        `   _Global Phone: send +12025550123 10_`,
+        `   _Local Phone: send 08012345678 10_`,
+        `   _External Wallet: send kaspa:qq123... 10_`,
         `• *redeem [code]*`,
-        `   _Example: redeem KASP-XXXX-XXXX_\n`,
+        `   _Example: redeem KASP-XXXX-XXXX_`,
+        `• *convert [network] [naira]*`,
+        `   _Example: convert MTN 1000_\n`,
         `💡 *UTILITY BILLS (1-TAP)*`,
         `• *airtime [network] [phone] [naira]*`,
         `   _Example: airtime MTN 08012345678 1000_`,
+        `• *data [network] [phone] [naira]*`,
+        `   _Example: data MTN 08012345678 1000_`,
         `• *electricity [provider] [meter] [naira]*`,
-        `   _Example: electricity IKEDC 1234567890 5000_`,
+        `   _Providers: IKEDC, EKEDC, AEDC, KEDCO, PHED, IBEDC, EEDC, KAEDCO, JED, BEDC, YEDC_`,
         `• *cable [provider] [smartcard] [naira]*`,
-        `   _Example: cable DSTV 1234567890 8500_`,
+        `   _Providers: DSTV, GOTV, STARTIMES, SHOWMAX_`,
         `• *water [provider] [account] [naira]*`,
         `   _Example: water LSWC 1234567890 3000_\n`,
         `🔄 *AUTOMATION & AUTOPILOT*`,

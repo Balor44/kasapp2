@@ -46,8 +46,19 @@ export async function handleRecurringMenu(userPhone: string, text: string, userS
 
 
     userState.draftSub = { billerCategory: categories[input] };
-    userState.step = 'INPUT_ACCOUNT';
+    userState.step = 'SELECT_PROVIDER'; 
     
+    if (categories[input] === 'ELECTRICITY') return `Which Electricity Provider?\nReply with the name (e.g., IKEDC, AEDC, EKEDC, KEDCO):`;
+    if (categories[input] === 'AIRTIME') return `Which Network?\nReply with the name (e.g., MTN, AIRTEL, GLO, 9MOBILE):`;
+    if (categories[input] === 'CABLE') return `Which Cable Provider?\nReply with the name (e.g., DSTV, GOTV, STARTIMES):`;
+  }
+
+
+  // 2.5. PROVIDER SELECTION (NEW STEP)
+  if (userState.step === 'SELECT_PROVIDER') {
+    userState.draftSub.billerCode = input.toUpperCase();
+    userState.step = 'INPUT_ACCOUNT';
+   
     const accountPrompts: Record<string, string> = {
       ELECTRICITY: 'Please enter your **Meter Number** (e.g. 1234567890):',
       AIRTIME: 'Please enter the **Phone Number** to receive top-ups:',
@@ -55,7 +66,7 @@ export async function handleRecurringMenu(userPhone: string, text: string, userS
     };
 
 
-    return `Got it! ${accountPrompts[categories[input]]}`;
+    return `Got it! ${accountPrompts[userState.draftSub.billerCategory]}`;
   }
 
 
@@ -97,7 +108,7 @@ export async function handleRecurringMenu(userPhone: string, text: string, userS
     userState.step = 'CONFIRM_SUB';
 
 
-    return `📋 *Please confirm your Auto-Renewal setup:*\n\n• **Service:** ${userState.draftSub.billerCategory}\n• **Account/Meter:** ${userState.draftSub.accountNumber}\n• **Recurring Amount:** ${userState.draftSub.amountKas} KAS\n• **Frequency:** ${userState.draftSub.frequency}\n\nReply *YES* to activate this subscription, or *NO* to cancel.`;
+    return `📋 *Please confirm your Auto-Renewal setup:*\n\n• **Service:** ${userState.draftSub.billerCategory} (${userState.draftSub.billerCode})\n• **Account/Meter:** ${userState.draftSub.accountNumber}\n• **Recurring Amount:** ${userState.draftSub.amountKas} KAS\n• **Frequency:** ${userState.draftSub.frequency}\n\nReply *YES* to activate this subscription, or *NO* to cancel.`;
   }
 
 
@@ -105,11 +116,11 @@ export async function handleRecurringMenu(userPhone: string, text: string, userS
   if (userState.step === 'CONFIRM_SUB') {
     if (input === 'YES') {
       const nextDueDate = calculateNextDueDate(new Date(), userState.draftSub.frequency);
-      
+     
       await SubscriptionModel.create({
         userPhone,
         billerCategory: userState.draftSub.billerCategory,
-        billerCode: userState.draftSub.billerCategory,
+        billerCode: userState.draftSub.billerCode, // Properly saves 'MTN', 'IKEDC', etc.
         accountNumber: userState.draftSub.accountNumber,
         amountKas: userState.draftSub.amountKas,
         frequency: userState.draftSub.frequency,
@@ -188,7 +199,7 @@ async function handleViewSubscriptions(userPhone: string): Promise<string> {
 
   let text = `📋 *Your Active Auto-Renewals:*\n\n`;
   subs.forEach((sub, i) => {
-    text += `${i + 1}️⃣ *${sub.billerCategory}* (${sub.accountNumber})\n`;
+    text += `${i + 1}️⃣ *${sub.billerCategory}* (${sub.billerCode || sub.accountNumber})\n`;
     text += `   • **Amount:** ${sub.amountKas} KAS | **Frequency:** ${sub.frequency}\n`;
     text += `   • **Next Payment:** ${sub.nextDueDate.toLocaleDateString()}\n\n`;
   });
@@ -217,12 +228,10 @@ async function handleInitiateCancel(userPhone: string, userState: any): Promise<
 
   let text = `🗑️ *Cancel an Auto-Renewal*\n\nSelect the number of the subscription you'd like to stop:\n\n`;
   subs.forEach((sub, i) => {
-    text += `${i + 1}️⃣ ${sub.billerCategory} (${sub.accountNumber}) — ${sub.amountKas} KAS\n`;
+    text += `${i + 1}️⃣ ${sub.billerCategory} (${sub.billerCode || sub.accountNumber}) — ${sub.amountKas} KAS\n`;
   });
 
 
   text += `\nReply with the number (e.g. 1) or reply *0* to go back.`;
   return text;
 }
-
-

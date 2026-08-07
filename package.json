@@ -32,6 +32,7 @@
     "flutterwave-node-v3": "^1.4.1",
     "isomorphic-ws": "^5.0.0",
     "kaspa-wasm": "file:vendor/kaspa-wasm-2.0.1.tgz",
+    "libphonenumber-js": "^1.13.10",
     "mongoose": "^9.7.4",
     "node-cron": "^4.6.0",
     "react": "^19.2.7",

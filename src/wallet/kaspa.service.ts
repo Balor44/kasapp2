@@ -7,14 +7,17 @@ import WebSocket from "isomorphic-ws";
 
 
 import * as kaspa from "kaspa-wasm";
-import { decryptMnemonic } from "../utils/crypto.utils";
+import { encryptMnemonic, decryptMnemonic } from "../utils/crypto.utils";
 
 
-const NETWORK = "testnet-10";
+const NETWORK = process.env.KASPA_NETWORK || "testnet-10"; // "mainnet" or "testnet-10"
 const DERIVATION_PATH = "m/44'/111111'/0'/0/0";
 
 
 export const KaspaService = {
+  /**
+   * Generates a new Kaspa keypair and returns both public address and raw mnemonic
+   */
   generateWallet: async (): Promise<{ publicKey: string; secret: string }> => {
     const mnemonic = bip39.generateMnemonic();
     const address = deriveAddress(mnemonic);
@@ -27,6 +30,26 @@ export const KaspaService = {
   },
 
 
+  /**
+   * Helper used for auto-onboarding recipient users
+   * Returns address + encrypted seed phrase ready for MongoDB storage
+   */
+  createEncryptedWallet: async (): Promise<{ address: string; encryptedSeed: string }> => {
+    const { publicKey, secret } = await KaspaService.generateWallet();
+    const encryptionKey = process.env.ENCRYPTION_KEY || "";
+    const encryptedSeed = encryptMnemonic(secret, encryptionKey);
+
+
+    return {
+      address: publicKey,
+      encryptedSeed,
+    };
+  },
+
+
+  /**
+   * Fetches UTXOs and calculates on-chain KAS balance
+   */
   getBalance: async (address: string): Promise<number> => {
     let rpc: any;
     try {
@@ -48,14 +71,21 @@ export const KaspaService = {
 
       return Number(totalSompi) / 100000000;
     } catch (err) {
-      console.error("Kaspa balance error:", err);
+      console.error("[Kaspa Balance Error]:", err);
       return 0;
     } finally {
-      if (rpc) await rpc.disconnect();
+      if (rpc) {
+        try {
+          await rpc.disconnect();
+        } catch {}
+      }
     }
   },
 
 
+  /**
+   * Core transaction engine: Builds, signs, and submits transactions via kaspa-wasm
+   */
   sendKAS: async (
     fromMnemonic: string,
     toAddress: string,
@@ -78,7 +108,7 @@ export const KaspaService = {
       });
 
 
-      if (!entries.length) {
+      if (!entries || !entries.length) {
         throw new Error("Wallet has no spendable UTXOs.");
       }
 
@@ -117,14 +147,16 @@ export const KaspaService = {
 
       return txid;
     } finally {
-      await rpc.disconnect();
+      try {
+        await rpc.disconnect();
+      } catch {}
     }
   },
 
 
   /**
-   * Wrapper for ChatbotService to send KAS to external Kaspa addresses.
-   * Decrypts mnemonic and executes sendKAS via kaspa-wasm.
+   * High-level wrapper for phone-to-phone or phone-to-external transactions.
+   * Decrypts mnemonic securely in ephemeral memory and executes sendKAS.
    */
   sendExternalTransaction: async (
     senderEncryptedMnemonic: string,
@@ -139,7 +171,7 @@ export const KaspaService = {
       );
 
 
-      // 2. Validate prefix matches current network mode
+      // 2. Validate address prefix matching current environment
       const isMainnet = recipientAddress.toLowerCase().startsWith("kaspa:");
       const isTestnet = recipientAddress.toLowerCase().startsWith("kasptest:");
 

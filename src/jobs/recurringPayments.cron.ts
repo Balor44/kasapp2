@@ -1,6 +1,9 @@
 import cron from 'node-cron';
 import { SubscriptionModel, SubscriptionStatus, SubscriptionFrequency } from '../models/Subscription';
 import { UserModel } from '../models/User';
+import { BillPayService, BillPayResponse } from '../services/billpay.service';
+import { sendWhatsAppNotification } from '../services/whatsapp.service';
+import { getKASPriceInNaira } from '../utils/price';
 
 
 export function calculateNextDueDate(currentDate: Date, frequency: SubscriptionFrequency): Date {
@@ -19,27 +22,37 @@ export function calculateNextDueDate(currentDate: Date, frequency: SubscriptionF
   return next;
 }
 
+
 /**
- * Placeholder for your utility provider integration (e.g. Vtpass, Flutterwave, etc.)
+ * Executes the live Flutterwave API call based on the subscription category.
  */
 async function executeUtilityBillPayment(
   category: string,
   billerCode: string,
   accountNumber: string,
   amountKas: number
-): Promise<{ success: boolean; transactionReference?: string; error?: string }> {
-  // TODO: Connect your actual biller API call here.
-  console.log(`[BILL API] Executing ${billerCode} for ${accountNumber} worth ${amountKas} KAS`);
-  return { success: true, transactionReference: `TX-${Date.now()}` };
-}
+): Promise<BillPayResponse> {
+  
+  // Convert KAS balance to Naira for the Flutterwave API right when the cron runs
+  const currentRate = await getKASPriceInNaira();
+  
+  // 5% spread protection to account for price volatility since they set up the subscription
+  const amountNaira = Math.floor(amountKas * currentRate * 0.95); 
 
 
-/**
- * Placeholder for sending WhatsApp messages to your users
- */
-async function sendWhatsAppMessage(phone: string, message: string): Promise<void> {
-  // TODO: Call your WhatsApp bot messaging function here
-  console.log(`[WHATSAPP SENT to ${phone}]: ${message}`);
+  console.log(`[BILL API] Executing ${billerCode} for ${accountNumber} worth ${amountKas} KAS (₦${amountNaira})`);
+
+
+  switch (category.toUpperCase()) {
+    case 'ELECTRICITY':
+      return await BillPayService.payElectricity(accountNumber, amountNaira, billerCode);
+    case 'AIRTIME':
+      return await BillPayService.buyAirtime(accountNumber, amountNaira, billerCode);
+    case 'CABLE':
+      return await BillPayService.payCable(accountNumber, amountNaira, billerCode);
+    default:
+      return { success: false, message: `❌ Unsupported subscription category: ${category}` };
+  }
 }
 
 
@@ -80,15 +93,15 @@ export async function processRecurringSubscriptions(): Promise<void> {
         await sub.save();
 
 
-        await sendWhatsAppMessage(
+        await sendWhatsAppNotification(
           sub.userPhone,
-          `⚠️ Your recurring payment of ${sub.amountKas} KAS for ${sub.billerCode} (${sub.accountNumber}) failed due to insufficient balance. Please recharge your wallet!`
+          `⚠️ *Auto-Renewal Failed*\n\nYour scheduled payment of *${sub.amountKas} KAS* for ${sub.billerCode} (${sub.accountNumber}) failed due to insufficient funds.\n\nPlease top up your wallet!${sub.consecutiveFailures >= 3 ? ' This subscription has been paused.' : ''}`
         );
         continue;
       }
 
 
-      // 3. Execute Bill Payment via API
+      // 3. Execute Bill Payment via Live API
       const billResult = await executeUtilityBillPayment(
         sub.billerCategory,
         sub.billerCode,
@@ -106,9 +119,10 @@ export async function processRecurringSubscriptions(): Promise<void> {
         await sub.save();
 
 
-        await sendWhatsAppMessage(
+        // Notify user with success message (which automatically includes prepaid tokens if it's electricity)
+        await sendWhatsAppNotification(
           sub.userPhone,
-          `✅ Auto-renewal successful! ${sub.amountKas} KAS paid for ${sub.billerCode} (${sub.accountNumber}). Your new balance is ${updatedUser.balance.toFixed(4)} KAS.`
+          `✅ *Auto-Renewal Successful!*\n\n${billResult.message}\n\n💳 *New Balance:* ${updatedUser.balance.toFixed(4)} KAS`
         );
       } else {
         // Bill Provider Error — Refund User Balance & Log Failure
@@ -122,9 +136,9 @@ export async function processRecurringSubscriptions(): Promise<void> {
         await sub.save();
 
 
-        await sendWhatsAppMessage(
+        await sendWhatsAppNotification(
           sub.userPhone,
-          `❌ Auto-renewal for ${sub.billerCode} failed on provider side. Your ${sub.amountKas} KAS has been refunded to your wallet balance.`
+          `❌ *Auto-Renewal Failed*\n\nWe couldn't process your ${sub.billerCode} payment right now. The provider might be down. \n\nYour *${sub.amountKas} KAS* has been instantly refunded to your wallet.\n\n_Reason: ${billResult.message}_`
         );
       }
     } catch (err) {
@@ -144,5 +158,3 @@ export function initRecurringPaymentsCron(): void {
   });
   console.log('[CRON INITIALIZED] Recurring payments schedule set for 08:00 AM daily.');
 }
-
-
