@@ -156,7 +156,7 @@ export const PaymentController = {
    * 3. NEW: Fetch Voucher for the Frontend
    * The frontend calls this when the user is redirected back to /payment-success?tx_ref=XXXX
    */
-  verifyVoucherQuery: async (req: Request, res: Response) => {
+verifyVoucherQuery: async (req: Request, res: Response) => {
     try {
       const { tx_ref } = req.query;
 
@@ -166,8 +166,12 @@ export const PaymentController = {
       }
 
 
+      // Explicitly cast tx_ref to a clean string to satisfy Mongoose and TS types
+      const cleanTxRef = String(tx_ref);
+
+
       // Check if the webhook has finished creating the voucher
-      const voucher = await RechargeCardModel.findOne({ transactionRef: tx_ref });
+      const voucher = await RechargeCardModel.findOne({ transactionRef: cleanTxRef });
 
 
       if (!voucher) {
@@ -189,5 +193,5 @@ export const PaymentController = {
       console.error('[Verify Voucher Error]:', error);
       return res.status(500).json({ error: 'Failed to verify voucher' });
     }
-  }
+},
 };
