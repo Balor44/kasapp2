@@ -10,7 +10,6 @@ import { handleRecurringMenu } from '../controllers/subscription.controller';
 import { getUserState, saveUserState } from './userState.service';
 import { sendWhatsAppNotification } from './whatsapp.service';
 import { decryptMnemonic } from '../utils/crypto.utils';
-import { AdminService } from './admin.service';
 
 
 export const ChatbotService = {
@@ -32,7 +31,26 @@ export const ChatbotService = {
     const rawMsg = message.trim();
     const msg = rawMsg.toLowerCase();
     const senderPhone = normalizePhone(phone); // Standardize sender phone format to E.164 (+234...)
-    const user = await UserModel.findOne({ phone: senderPhone });
+
+
+    // -------------------------------------------------------------
+    // 0. SELF-HEALING MULTI-FORMAT PHONE LOOKUP
+    // -------------------------------------------------------------
+    const rawDigits = senderPhone.replace('+', '');
+    const localFormat = rawDigits.startsWith('234') ? '0' + rawDigits.slice(3) : rawDigits;
+    const internationalFormat = '+' + rawDigits;
+
+
+    let user = await UserModel.findOne({
+      phone: { $in: [phone, senderPhone, rawDigits, localFormat, internationalFormat] }
+    });
+
+
+    // Automatically upgrade legacy formats in database to E.164 standard safely
+    if (user && user.phone !== internationalFormat) {
+      user.phone = internationalFormat;
+      await user.save();
+    }
 
 
     // -------------------------------------------------------------
@@ -217,24 +235,13 @@ export const ChatbotService = {
     // -------------------------------------------------------------
     // 4. STANDARD COMMAND EXECUTORS
     // -------------------------------------------------------------
-    // -------------------------------------------------------------
-    // ADMIN GATEWAY (Hidden from normal users)
-    // -------------------------------------------------------------
-    if (msg.startsWith('/admin')) { 
-      if (AdminService.isAdmin(senderPhone)) {
-        return await AdminService.processCommand(senderPhone, rawMsg);
-      } else {
-        // If a non-admin tries to run this, fail silently by letting it fall through 
-        // to the default "I didn't quite catch that" response at the bottom.
-      }
-    }
     if (msg === 'hi' || msg === 'hello' || msg === 'start') {
       if (user) {
         return "Hey, welcome back! 👋\nYou've got " + user.balance.toFixed(4) + ' KAS sitting in your wallet.\n\nType *help* if you need a reminder of what I can do.';
       }
       const { publicKey, secret } = await KaspaService.generateWallet();
-      await UserModel.create({
-        phone: senderPhone,
+      user = await UserModel.create({
+        phone: internationalFormat,
         walletAddress: publicKey,
         mnemonic: secret,
         balance: 0,
@@ -333,7 +340,7 @@ export const ChatbotService = {
 
       if (!targetRecipient || !amountStr) {
         return (
-          " Usage: *send [phone_or_address] [amount_kas]*\n\n" +
+          "Usage: *send [phone_or_address] [amount_kas]*\n\n" +
           "• Global Transfer: `send +12025550123 10`\n" +
           "• Local Transfer: `send 08012345678 10`\n" +
           "• External Wallet: `send kaspa:qq123... 10`"
@@ -353,7 +360,7 @@ export const ChatbotService = {
 
 
       if (user.balance < amount) {
-        return ` Insufficient balance. You have *${user.balance.toFixed(4)} KAS*.`;
+        return `Insufficient balance. You have *${user.balance.toFixed(4)} KAS*.`;
       }
 
 
@@ -391,7 +398,7 @@ export const ChatbotService = {
 
 
       if (normalizedTargetPhone === senderPhone) {
-        return " You can't transfer KAS to your own phone number!";
+        return "You can't transfer KAS to your own phone number!";
       }
 
 
