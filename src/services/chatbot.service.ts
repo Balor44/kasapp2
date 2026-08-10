@@ -553,7 +553,7 @@ export const ChatbotService = {
       card.used = true;
       card.usedBy = senderPhone;
       card.usedAt = new Date();
-      card.redeemTxId = redemption.txId;
+      (card as any) .redeemTxId = redemption.txId;
       await card.save();
 
 
