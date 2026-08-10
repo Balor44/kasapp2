@@ -489,7 +489,7 @@ export const ChatbotService = {
         fundingTxId: escrow.txId,
         purchasedByPhone: senderPhone,
         used: false
-      });
+      } as any); 
 
 
       // Deduct internal balance (funds are securely locked on-chain)
@@ -539,7 +539,7 @@ export const ChatbotService = {
       // Request Argent covenant redemption to unlock UTXO
       const redemption = await VaultService.redeemVoucherEscrow(
         currentUser.walletAddress!, // Ensure KAS goes directly to the redeemer <-- FIX APPLIED HERE
-        card.vaultAddress!,
+        (card as any).vaultAddress!,
         code
       );
 
