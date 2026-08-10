@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "id": "3cea536fcb47e5626cf5fdc6f2eb7b675bfa1e262144688a47a3c14f0f403143",
+  "generator": {
+    "name": "argentc",
+    "version": "0.1.0"
+  },
+  "app": "EscrowApp",
+  "dependencies": [],
+  "root": "/home/balor/kasapp2/contracts/VoucherEscrow.ag",
+  "modules": [
+    "/home/balor/kasapp2/contracts/VoucherEscrow.ag"
+  ],
+  "argent": {
+    "templates": [
+      {
+        "id": "template/voucher_escrow",
+        "actor": "VoucherEscrow",
+        "symbol": "gen__voucher_escrow_template"
+      }
+    ],
+    "template_plan": {
+      "templates": [
+        {
+          "id": "template/voucher_escrow",
+          "actor": "VoucherEscrow",
+          "contract": "VoucherEscrow",
+          "symbol": "gen__voucher_escrow_template",
+          "sil_template_hash": "ad0846947b3f4107e8b7e612df24ab2c634afcaabc2a92f85d2d380ee0da0506",
+          "actor_type_handle": {
+            "state": "EscrowState",
+            "context_fields": [],
+            "template": {
+              "prefix_hex": "",
+              "suffix_hex": "b9cb009c6978a8788769757551",
+              "hash_hex": "ad0846947b3f4107e8b7e612df24ab2c634afcaabc2a92f85d2d380ee0da0506"
+            }
+          }
+        }
+      ],
+      "runtime_states": [],
+      "route_tables": [],
+      "route_proofs": [],
+      "route_families": [],
+      "witness_recipes": []
+    },
+    "interfaces": {
+      "exports": [
+        {
+          "id": "interface/actor/VoucherEscrow",
+          "app": "EscrowApp",
+          "actor": "VoucherEscrow",
+          "state": "EscrowState",
+          "fingerprint_hex": "61115a2673183bea36915323762ad7a9d57c581bbc674603a32a27c9da7ee9fe"
+        }
+      ],
+      "imports": []
+    },
+    "states": [
+      {
+        "name": "EscrowState",
+        "fields": [
+          {
+            "name": "secret_hash",
+            "type": {
+              "kind": "fixed_bytes",
+              "len": 32
+            }
+          }
+        ]
+      }
+    ],
+    "actor_enums": [],
+    "actors": [
+      {
+        "name": "VoucherEscrow",
+        "state": "EscrowState",
+        "abi": {
+          "actor": "VoucherEscrow"
+        },
+        "entries": [
+          {
+            "name": "redeem",
+            "kind": "leader",
+            "abi": {
+              "actor": "VoucherEscrow",
+              "entry": "redeem"
+            },
+            "route_plan": {
+              "active_input": {
+                "name": "self",
+                "actor": "VoucherEscrow",
+                "cov_index": 0
+              },
+              "leader_input": {
+                "name": "self",
+                "actor": "VoucherEscrow",
+                "cov_index": 0
+              },
+              "consumes": [],
+              "outputs": [],
+              "witness_recipe_ids": []
+            },
+            "hidden_params": [],
+            "template_selectors": [],
+            "witnesses": [],
+            "consumes": [],
+            "emits": {
+              "kind": "outputs",
+              "outputs": []
+            },
+            "routes": []
+          }
+        ]
+      }
+    ]
+  },
+  "sil_abi": {
+    "schema_version": 1,
+    "states": [
+      {
+        "name": "EscrowState",
+        "fields": [
+          {
+            "name": "secret_hash",
+            "type": {
+              "kind": "fixed_bytes",
+              "len": 32
+            }
+          }
+        ]
+      }
+    ],
+    "contracts": [
+      {
+        "name": "VoucherEscrow",
+        "source_path": "sil/VoucherEscrow.sil",
+        "runtime_state": {
+          "source": "EscrowState",
+          "fields": [
+            {
+              "name": "secret_hash",
+              "type": {
+                "kind": "fixed_bytes",
+                "len": 32
+              }
+            }
+          ]
+        },
+        "entries": [
+          {
+            "name": "redeem",
+            "selector": null,
+            "params": [
+              {
+                "name": "secret_code",
+                "type": {
+                  "kind": "bytes"
+                }
+              }
+            ]
+          }
+        ],
+        "compiled": {
+          "script_hex": "200000000000000000000000000000000000000000000000000000000000000000b9cb009c6978a8788769757551",
+          "template_hash_hex": "ad0846947b3f4107e8b7e612df24ab2c634afcaabc2a92f85d2d380ee0da0506",
+          "state_span": {
+            "offset": 0,
+            "len": 33
+          }
+        }
+      }
+    ]
+  }
+}
