@@ -1,7 +1,7 @@
 import { Agent, setGlobalDispatcher } from 'undici';
 
 
-// Extends TCP socket timeout to handle long-running node requests
+// Extends TCP socket timeout from default 10s to 30s
 setGlobalDispatcher(
   new Agent({
     connect: {
@@ -39,9 +39,6 @@ import paymentRoutes from './routes/payment.routes';
 
 
 const app = express();
-
-
-// Middleware
 app.use(cors());
 app.use(express.json());
 
@@ -57,15 +54,16 @@ app.use('/api', whatsappRoutes);
 app.use('/api', paymentRoutes);
 
 
-// Health Check
 app.get('/health', (_req: any, res: any) => {
-  res.json({ status: 'OK', product: 'Kasapp API Engine' });
+  res.json({ status: 'OK', product: 'Kasapp' });
 });
 
 
-// Global API 404 Catch-All
-app.use('*', (req: any, res: any) => {
-  res.status(404).json({ error: 'Kasapp API route not found' });
+// --------------------------------------------------------------------------
+// Global API 404 Catch-All (Express 5 Safe - NO ASTERISK)
+// --------------------------------------------------------------------------
+app.use((req: any, res: any) => {
+  res.status(404).json({ error: 'API route not found' });
 });
 
 
