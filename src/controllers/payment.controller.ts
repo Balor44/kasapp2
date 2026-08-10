@@ -42,11 +42,11 @@ export const PaymentController = {
 
 
       const tx_ref = `KASAPP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-      
+     
       const payload = {
         tx_ref,
         amount: amountNaira,
-        currency, 
+        currency,
         redirect_url: req.body.redirect_url || `${req.headers.origin || 'https://kasapp.app'}/payment-success`,
         customer: {
           email,
@@ -127,13 +127,13 @@ export const PaymentController = {
         // Create voucher entry in Database using your exact schema
         const newVoucher: IRechargeCard = await RechargeCardModel.create({
           code: voucherCode,
-          amount: kasAmount, 
+          amount: kasAmount,
           amountNaira: amount,
           transactionRef: tx_ref,
           purchasedByPhone: userPhone,
           used: false,
           createdAt: new Date(),
-        });
+        }) as unknown as IRechargeCard; // <-- Type assertion applied here
 
 
         console.log(`[Webhook: Voucher Created] Code: ${newVoucher.code} | Value: ${kasAmount} KAS | Phone: ${userPhone}`);
@@ -156,7 +156,7 @@ export const PaymentController = {
    * 3. NEW: Fetch Voucher for the Frontend
    * The frontend calls this when the user is redirected back to /payment-success?tx_ref=XXXX
    */
-verifyVoucherQuery: async (req: Request, res: Response) => {
+  verifyVoucherQuery: async (req: Request, res: Response) => {
     try {
       const { tx_ref } = req.query;
 
@@ -193,5 +193,5 @@ verifyVoucherQuery: async (req: Request, res: Response) => {
       console.error('[Verify Voucher Error]:', error);
       return res.status(500).json({ error: 'Failed to verify voucher' });
     }
-},
+  },
 };
