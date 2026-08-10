@@ -539,7 +539,7 @@ export const ChatbotService = {
       // Request Argent covenant redemption to unlock UTXO
       const redemption = await VaultService.redeemVoucherEscrow(
         currentUser.walletAddress!, // Ensure KAS goes directly to the redeemer <-- FIX APPLIED HERE
-        card.vaultAddress,
+        card.vaultAddress!,
         code
       );
 
