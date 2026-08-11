@@ -11,8 +11,8 @@ const BOT_PHONE = process.env.WHATSAPP_BOT_NUMBER || '2348000000000'; // E.164 f
 
 // Helper to generate voucher code format: KASP-XXXX-XXXX
 function generateVoucherCode(): string {
-  const raw = crypto.randomBytes(4).toString('hex').toUpperCase();
-  return `KASP-${raw.slice(0, 4)}-${raw.slice(4, 8)}`;
+  const raw = crypto.randomBytes(8).toString('hex').toUpperCase();
+  return `KASP-${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(12, 16)}`;
 }
 
 
