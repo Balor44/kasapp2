@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { generateVoucherCode } from '../utils/voucherCode';
 import { Mnemonic, PrivateKey } from '@dfns/kaspa-wasm';
 
 
@@ -38,7 +39,7 @@ export const VaultService = {
 
 
       const raw = crypto.randomBytes(16).toString('hex'); // 32-char hex
-      const secretCode = `KASP-${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(12, 16)}`; // KASP-XXXX-XXXX-XXXX
+      const secretCode = generateVoucherCode();
       const codeHash = crypto.createHash('sha256').update(secretCode).digest('hex');
 
       console.log(`[VaultService] Binding Argent covenant creation using bytecode length: ${escrowArtifact.bytecode?.length || 0}`);
