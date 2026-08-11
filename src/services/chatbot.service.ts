@@ -526,6 +526,7 @@ export const ChatbotService = {
 
 
       const code = normalizeVoucherCode(parts[1]);
+      console.log(`[DEBUG REDEEM] Searching for "${code}" | Connected to DB: ${require('mongoose').connection.name} @ ${require('mongoose').connection.host}`);
       const card = await RechargeCardModel.findOne({ code });
 
 
