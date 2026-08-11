@@ -37,9 +37,9 @@ export const VaultService = {
       const privateKey = new PrivateKey(masterSeedHex.substring(0, 64));
 
 
-      const secretCode = `KASP-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+      const raw = crypto.randomBytes(16).toString('hex'); // 32-char hex
+      const secretCode = `KASP-${raw.slice(0, 4)}-${raw.slice(4, 8)}`; // KASP-XXXX-XXXX
       const codeHash = crypto.createHash('sha256').update(secretCode).digest('hex');
-
 
       console.log(`[VaultService] Binding Argent covenant creation using bytecode length: ${escrowArtifact.bytecode?.length || 0}`);
       
