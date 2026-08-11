@@ -60,24 +60,48 @@ export const VaultService = {
 
 
   async redeemVoucherEscrow(
-    recipientAddress: string, 
-    vaultAddress: string, 
-    secretCode: string
-  ): Promise<{ success: boolean; txId?: string; error?: string }> {
-    try {
-      if (!escrowArtifact) throw new Error('Covenant artifact missing.');
+  recipientAddress: string,
+  vaultAddress: string,
+  secretCode: string,
+  amount: number,           
+  pinProvided?: string      
+) {
+  try {
+    if (!escrowArtifact) throw new Error('Covenant artifact missing.');
 
+    console.log(`[VaultService] Attempting Argent transition 'redeem' for vault ${vaultAddress} (${amount} KAS)`);
 
-      console.log(`[VaultService] Executing Argent transition 'redeem' for vault ${vaultAddress}`);
+    // --- THE 10k KAS SECURITY LOCK ---
+    const SECURITY_THRESHOLD = 10000;
 
+    if (amount >= SECURITY_THRESHOLD) {
+      console.log(`[VaultService] 🚨 Security Threshold Triggered for vault ${vaultAddress}`);
+      
+      if (!pinProvided) {
+        return {
+          success: false,
+          error: `SECURITY_LOCK: This voucher exceeds the ${SECURITY_THRESHOLD} KAS limit. Secondary 2FA PIN is required to unlock this covenant.`
+        };
+      }
 
-      return { 
-        success: true, 
-        txId: 'simulated_redeem_tx_' + crypto.randomBytes(4).toString('hex') 
-      };
-    } catch (error: any) {
-      console.error('[VaultService] Escrow Redemption Error:', error);
-      return { success: false, error: 'Network rejected transition. Invalid code.' };
+      // Verify the PIN (You can hash this or compare against a db record later)
+      const expectedPin = process.env.ARGENT_MASTER_PIN;
+      if (pinProvided !== expectedPin) {
+        return {
+          success: false,
+          error: "Invalid 2FA PIN. Covenant remains locked."
+        };
+      }
+      console.log(`[VaultService] 2FA verified. Covenant unlocked for high-value transfer.`);
     }
+
+    return {
+      success: true,
+      txId: 'simulated_redeem_tx_' + crypto.randomBytes(4).toString('hex')
+    };
+  } catch (error: any) {
+    console.error('[VaultService] Escrow Redemption Error:', error);
+    return { success: false, error: 'Network rejected transition. Invalid code.' };
+  }
   }
 };

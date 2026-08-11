@@ -546,9 +546,9 @@ export const ChatbotService = {
         const redemption = await VaultService.redeemVoucherEscrow(
           currentUser.walletAddress!,
           (card as any).vaultAddress,
-          code
+          code,
+          (card as any).amount // <-- Add the amount here!
         );
-
 
         if (!redemption.success) {
           return `❌ Blockchain rejected redemption: ${redemption.error}`;

@@ -1,6 +1,3 @@
-// src/wallet/kaspa.service.ts
-
-
 import * as bip39 from "bip39";
 import WebSocket from "isomorphic-ws";
 (globalThis as any).WebSocket = WebSocket;
@@ -10,14 +7,12 @@ import * as kaspa from "kaspa-wasm";
 import { encryptMnemonic, decryptMnemonic } from "../utils/crypto.utils";
 
 
-const NETWORK = process.env.KASPA_NETWORK || "testnet-10"; // "mainnet" or "testnet-10"
+// Defaults to mainnet if not specified in .env
+const NETWORK = process.env.KASPA_NETWORK || "mainnet";
 const DERIVATION_PATH = "m/44'/111111'/0'/0/0";
 
 
 export const KaspaService = {
-  /**
-   * Generates a new Kaspa keypair and returns both public address and raw mnemonic
-   */
   generateWallet: async (): Promise<{ publicKey: string; secret: string }> => {
     const mnemonic = bip39.generateMnemonic();
     const address = deriveAddress(mnemonic);
@@ -30,10 +25,6 @@ export const KaspaService = {
   },
 
 
-  /**
-   * Helper used for auto-onboarding recipient users
-   * Returns address + encrypted seed phrase ready for MongoDB storage
-   */
   createEncryptedWallet: async (): Promise<{ address: string; encryptedSeed: string }> => {
     const { publicKey, secret } = await KaspaService.generateWallet();
     const encryptionKey = process.env.ENCRYPTION_KEY || "";
@@ -47,9 +38,6 @@ export const KaspaService = {
   },
 
 
-  /**
-   * Fetches UTXOs and calculates on-chain KAS balance
-   */
   getBalance: async (address: string): Promise<number> => {
     let rpc: any;
     try {
@@ -83,14 +71,11 @@ export const KaspaService = {
   },
 
 
-  /**
-   * Core transaction engine: Builds, signs, and submits transactions via kaspa-wasm
-   */
   sendKAS: async (
     fromMnemonic: string,
     toAddress: string,
     amount: number
-  ): Promise<string> => {
+  ) => {
     const senderAddress = deriveAddress(fromMnemonic);
     const privateKey = derivePrivateKey(fromMnemonic);
 
@@ -154,35 +139,30 @@ export const KaspaService = {
   },
 
 
-  /**
-   * High-level wrapper for phone-to-phone or phone-to-external transactions.
-   * Decrypts mnemonic securely in ephemeral memory and executes sendKAS.
-   */
   sendExternalTransaction: async (
     senderEncryptedMnemonic: string,
     recipientAddress: string,
     amountKas: number
   ): Promise<{ success: boolean; txId?: string; error?: string }> => {
     try {
-      // 1. Decrypt user's mnemonic seed phrase
       const rawMnemonic = decryptMnemonic(
         senderEncryptedMnemonic,
         process.env.ENCRYPTION_KEY || ""
       );
 
 
-      // 2. Validate address prefix matching current environment (Strictly Mainnet)
-        const isMainnet = recipientAddress.toLowerCase().startsWith("kaspa:");
-
-          if (!isMainnet) {
-              return {
-              success: false,
-            error: "Invalid Kaspa address format. Mainnet addresses must strictly start with 'kaspa:'.",
-            };
-          }
+      // STRICT MAINNET VALIDATION
+      const isMainnet = recipientAddress.toLowerCase().startsWith("kaspa:");
 
 
-      // 3. Broadcast transaction using kaspa-wasm RPC generator
+      if (!isMainnet) {
+        return {
+          success: false,
+          error: "Invalid address format. Mainnet addresses must strictly start with 'kaspa:'.",
+        };
+      }
+
+
       const txId = await KaspaService.sendKAS(rawMnemonic, recipientAddress, amountKas);
 
 

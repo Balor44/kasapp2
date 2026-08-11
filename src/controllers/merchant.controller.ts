@@ -24,7 +24,7 @@ export const redeemMerchantVoucher = async (req: Request, res: Response) => {
     const cleanCode = normalizeVoucherCode(code);
     console.log(`[API Debug] Raw code received from payload:`, code);
     console.log(`[API Debug] Normalized code searching DB:`, cleanCode);
-    
+
     const voucher = await RechargeCardModel.findOne({ code: cleanCode });
     
     if (!voucher) {
@@ -40,11 +40,13 @@ export const redeemMerchantVoucher = async (req: Request, res: Response) => {
       return res.status(500).json({ success: false, error: 'Vault address missing on this voucher' });
     }
 
-
+    const pinProvided = req.body.pin;
     const result = await VaultService.redeemVoucherEscrow(
       merchantAddress,
       voucher.vaultAddress,
-      cleanCode
+      cleanCode,
+      voucher.amount,
+      pinProvided // Pass this if the user provided one, otherwise undefined 
     );
 
 
