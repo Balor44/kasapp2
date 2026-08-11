@@ -1,0 +1,13 @@
+state EscrowState {
+    byte[32] secret_hash;
+}
+
+actor VoucherEscrow owns EscrowState {
+    entry redeem(byte[] secret_code) emits {} {
+        require(sha256(secret_code) == secret_hash);
+    }
+}
+
+app EscrowApp {
+    actor VoucherEscrow;
+}

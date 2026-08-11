@@ -8,15 +8,14 @@ const bcrypt_1 = __importDefault(require("bcrypt"));
 const User_1 = require("../models/User");
 const RechargeCard_1 = require("../models/RechargeCard");
 const kaspa_service_1 = require("../wallet/kaspa.service");
-const billpay_service_1 = require("./billpay.service"); // Ensure this points to the file where buyData is added
+const billpay_service_1 = require("./billpay.service");
 const price_1 = require("../utils/price");
 const phone_1 = require("../utils/phone");
-const voucherCode_1 = require("../utils/voucherCode");
 const subscription_controller_1 = require("../controllers/subscription.controller");
 const userState_service_1 = require("./userState.service");
 const whatsapp_service_1 = require("./whatsapp.service");
 const crypto_utils_1 = require("../utils/crypto.utils");
-const admin_service_1 = require("./admin.service");
+const vault_service_1 = require("../wallet/vault.service");
 exports.ChatbotService = {
     /**
      * Primary entry point for messages from WhatsApp.
@@ -35,7 +34,20 @@ exports.ChatbotService = {
         const rawMsg = message.trim();
         const msg = rawMsg.toLowerCase();
         const senderPhone = (0, phone_1.normalizePhone)(phone); // Standardize sender phone format to E.164 (+234...)
-        const user = await User_1.UserModel.findOne({ phone: senderPhone });
+        // -------------------------------------------------------------
+        // 0. SELF-HEALING MULTI-FORMAT PHONE LOOKUP
+        // -------------------------------------------------------------
+        const rawDigits = senderPhone.replace('+', '');
+        const localFormat = rawDigits.startsWith('234') ? '0' + rawDigits.slice(3) : rawDigits;
+        const internationalFormat = '+' + rawDigits;
+        let user = await User_1.UserModel.findOne({
+            phone: { $in: [phone, senderPhone, rawDigits, localFormat, internationalFormat] }
+        });
+        // Automatically upgrade legacy formats in database to E.164 standard safely
+        if (user && user.phone !== internationalFormat) {
+            user.phone = internationalFormat;
+            await user.save();
+        }
         // -------------------------------------------------------------
         // 1. RECURRING PAYMENTS / AUTO-RENEWAL ROUTER
         // -------------------------------------------------------------
@@ -109,63 +121,70 @@ exports.ChatbotService = {
         if (['export', 'export seed', 'backup', 'show seed'].includes(msg)) {
             return await exports.ChatbotService.parse(phone, '/export');
         }
-        // Airtime Natural Synthesizer: "airtime mtn 08012345678 1000" or "buy airtime mtn 08012345678 1000"
+        // Airtime Natural Synthesizer
         const airtimeRegex = /^(?:buy\s+)?airtime\s+(mtn|airtel|glo|9mobile)\s+(\+?\d{10,14})\s+(\d+)$/i;
         const airtimeMatch = rawMsg.match(airtimeRegex);
         if (airtimeMatch) {
             const [, network, targetPhone, amount] = airtimeMatch;
             return await exports.ChatbotService.parse(phone, `/airtime ${network.toUpperCase()} ${targetPhone} ${amount}`);
         }
-        // Data Natural Synthesizer: "data mtn 08012345678 1000" or "buy data mtn 08012345678 1000"
+        // Data Natural Synthesizer
         const dataRegex = /^(?:buy\s+)?data\s+(mtn|airtel|glo|9mobile)\s+(\+?\d{10,14})\s+(\d+)$/i;
         const dataMatch = rawMsg.match(dataRegex);
         if (dataMatch) {
             const [, network, targetPhone, amount] = dataMatch;
             return await exports.ChatbotService.parse(phone, `/data ${network.toUpperCase()} ${targetPhone} ${amount}`);
         }
-        // Airtime-to-KAS Natural Synthesizer: "convert airtime mtn 1000" or "airtime to kas mtn 1000"
+        // Airtime-to-KAS Natural Synthesizer
         const airtimeToKasRegex = /^(?:convert\s+)?airtime\s+(?:to\s+kas\s+)?(mtn|airtel|glo|9mobile)\s+(\d+)$/i;
         const airtimeToKasMatch = rawMsg.match(airtimeToKasRegex);
         if (airtimeToKasMatch) {
             const [, network, amount] = airtimeToKasMatch;
             return await exports.ChatbotService.parse(phone, `/convert ${network.toUpperCase()} ${amount}`);
         }
-        // Send KAS Natural Synthesizer: Supports Global E.164 Phones (+1..., +234...) AND Kaspa Addresses (kaspa:qq...)
+        // Send KAS Natural Synthesizer
         const sendRegex = /^(?:send|transfer)\s+([a-zA-Z0-9:+]+)\s+(\d+(?:\.\d+)?)$/i;
         const sendMatch = rawMsg.match(sendRegex);
         if (sendMatch) {
             const [, recipient, amount] = sendMatch;
             return await exports.ChatbotService.parse(phone, `/send ${recipient} ${amount}`);
         }
-        // Alternative Send Synthesizer: "send 50 KAS to +12025550123"
+        // Alternative Send Synthesizer
         const sendAltRegex = /^(?:send|transfer)\s+(\d+(?:\.\d+)?)\s*(?:kas)?\s*(?:to)?\s*([a-zA-Z0-9:+]+)$/i;
         const sendAltMatch = rawMsg.match(sendAltRegex);
         if (sendAltMatch) {
             const [, amount, recipient] = sendAltMatch;
             return await exports.ChatbotService.parse(phone, `/send ${recipient} ${amount}`);
         }
-        // Redeem Voucher Natural Synthesizer: "redeem KASP-1234-5678" or "voucher KASP-1234-5678"
-        const redeemRegex = /^(?:redeem|voucher)\s+([a-zA-Z0-9-]+)$/i;
+        // Create Voucher Natural Synthesizer: "voucher 50" or "create voucher 50"
+        const createVoucherRegex = /^(?:create\s+)?voucher\s+(\d+(?:\.\d+)?)$/i;
+        const createVoucherMatch = rawMsg.match(createVoucherRegex);
+        if (createVoucherMatch) {
+            const [, amount] = createVoucherMatch;
+            return await exports.ChatbotService.parse(phone, `/voucher ${amount}`);
+        }
+        // Redeem Voucher Natural Synthesizer: "redeem KASP-1234-5678"
+        const redeemRegex = /^(?:redeem|claim)\s+(KASP-[a-zA-Z0-9-]+)$/i;
         const redeemMatch = rawMsg.match(redeemRegex);
         if (redeemMatch) {
             const [, code] = redeemMatch;
             return await exports.ChatbotService.parse(phone, `/redeem ${code}`);
         }
-        // Electricity Natural Synthesizer (Matches all 11 DisCos: ikedc, ekedc, aedc, kedco, phed, ibedc, eedc, kaedco, jed, bedc, yedc)
+        // Electricity Natural Synthesizer
         const elecRegex = /^(?:pay\s+)?electricity\s+(ikedc|ekedc|aedc|kedco|phed|ibedc|eedc|kaedco|jed|bedc|yedc)\s+(\d+)\s+(\d+)$/i;
         const elecMatch = rawMsg.match(elecRegex);
         if (elecMatch) {
             const [, provider, meter, amount] = elecMatch;
             return await exports.ChatbotService.parse(phone, `/electricity ${provider.toUpperCase()} ${meter} ${amount}`);
         }
-        // Cable TV Natural Synthesizer (Matches DSTV, GOTV, StarTimes, Showmax)
+        // Cable TV Natural Synthesizer
         const cableRegex = /^(?:pay\s+)?cable\s+(dstv|gotv|startimes|showmax)\s+(\d+)\s+(\d+)$/i;
         const cableMatch = rawMsg.match(cableRegex);
         if (cableMatch) {
             const [, provider, smartcard, amount] = cableMatch;
             return await exports.ChatbotService.parse(phone, `/cable ${provider.toUpperCase()} ${smartcard} ${amount}`);
         }
-        // Water Bill Natural Synthesizer: "water lswc 1234567890 3000"
+        // Water Bill Natural Synthesizer
         const waterRegex = /^(?:pay\s+)?water\s+([a-zA-Z]+)\s+(\d+)\s+(\d+)$/i;
         const waterMatch = rawMsg.match(waterRegex);
         if (waterMatch) {
@@ -175,25 +194,13 @@ exports.ChatbotService = {
         // -------------------------------------------------------------
         // 4. STANDARD COMMAND EXECUTORS
         // -------------------------------------------------------------
-        // -------------------------------------------------------------
-        // ADMIN GATEWAY (Hidden from normal users)
-        // -------------------------------------------------------------
-        if (msg.startsWith('/admin')) {
-            if (admin_service_1.AdminService.isAdmin(senderPhone)) {
-                return await admin_service_1.AdminService.processCommand(senderPhone, rawMsg);
-            }
-            else {
-                // If a non-admin tries to run this, fail silently by letting it fall through 
-                // to the default "I didn't quite catch that" response at the bottom.
-            }
-        }
         if (msg === 'hi' || msg === 'hello' || msg === 'start') {
             if (user) {
                 return "Hey, welcome back! 👋\nYou've got " + user.balance.toFixed(4) + ' KAS sitting in your wallet.\n\nType *help* if you need a reminder of what I can do.';
             }
             const { publicKey, secret } = await kaspa_service_1.KaspaService.generateWallet();
-            await User_1.UserModel.create({
-                phone: senderPhone,
+            user = await User_1.UserModel.create({
+                phone: internationalFormat,
                 walletAddress: publicKey,
                 mnemonic: secret,
                 balance: 0,
@@ -257,7 +264,7 @@ exports.ChatbotService = {
             const targetRecipient = parts[1];
             const amountStr = parts[2];
             if (!targetRecipient || !amountStr) {
-                return (" Usage: *send [phone_or_address] [amount_kas]*\n\n" +
+                return ("Usage: *send [phone_or_address] [amount_kas]*\n\n" +
                     "• Global Transfer: `send +12025550123 10`\n" +
                     "• Local Transfer: `send 08012345678 10`\n" +
                     "• External Wallet: `send kaspa:qq123... 10`");
@@ -270,9 +277,9 @@ exports.ChatbotService = {
                 return "You'll need a wallet first — just say Hi and I'll get you set up.";
             }
             if (user.balance < amount) {
-                return ` Insufficient balance. You have *${user.balance.toFixed(4)} KAS*.`;
+                return `Insufficient balance. You have *${user.balance.toFixed(4)} KAS*.`;
             }
-            // CASE A: EXTERNAL KASPA ADDRESS (Starts with "kaspa:" or "kasptest:")
+            // CASE A: EXTERNAL KASPA ADDRESS
             if (targetRecipient.toLowerCase().startsWith('kaspa:') || targetRecipient.toLowerCase().startsWith('kasptest:')) {
                 const txResult = await kaspa_service_1.KaspaService.sendExternalTransaction(user.mnemonic, targetRecipient, amount);
                 if (!txResult.success) {
@@ -286,19 +293,18 @@ exports.ChatbotService = {
                     `• *TXID:* \`${txResult.txId}\`\n\n` +
                     `💳 *New Balance:* ${user.balance.toFixed(4)} KAS`);
             }
-            // CASE B: GLOBAL PHONE TRANSFER (E.164 Normalized Kasapp to Kasapp)
+            // CASE B: GLOBAL PHONE TRANSFER
             const normalizedTargetPhone = (0, phone_1.normalizePhone)(targetRecipient);
             if (!normalizedTargetPhone) {
                 return "❌ Invalid phone number. Please include the country code for international numbers (e.g. +12025550123).";
             }
             if (normalizedTargetPhone === senderPhone) {
-                return " You can't transfer KAS to your own phone number!";
+                return "You can't transfer KAS to your own phone number!";
             }
             const sender = await User_1.UserModel.findOneAndUpdate({ phone: senderPhone, balance: { $gte: amount } }, { $inc: { balance: -amount } }, { new: true });
             if (!sender) {
                 return 'Insufficient balance or pending transaction lock.';
             }
-            // Fetch or Auto-Onboard Recipient Wallet
             let recipientUser = await User_1.UserModel.findOne({ phone: normalizedTargetPhone });
             if (!recipientUser) {
                 const { publicKey, secret } = await kaspa_service_1.KaspaService.generateWallet();
@@ -325,11 +331,46 @@ exports.ChatbotService = {
                 `Sent *${amount} KAS* to *${normalizedTargetPhone}*.\n` +
                 `Your new balance is *${sender.balance.toFixed(4)} KAS*.`);
         }
+        // --- /voucher [amount] ---
+        if (msg.startsWith('/voucher')) {
+            const parts = rawMsg.split(' ');
+            if (parts.length < 2)
+                return 'Usage: /voucher [amount]\nExample: /voucher 50';
+            const amount = parseFloat(parts[1]);
+            if (isNaN(amount) || amount <= 0)
+                return 'Please enter a valid amount.';
+            if (!user)
+                return "You'll need a wallet first — just say Hi and I'll get you set up.";
+            if (user.balance < amount)
+                return `❌ Insufficient balance. You have ${user.balance.toFixed(4)} KAS.`;
+            // Create the Argent Escrow on the blockchain
+            const escrow = await vault_service_1.VaultService.createVoucherEscrow(user.mnemonic, amount);
+            if (!escrow.success || !escrow.voucherCode || !escrow.vaultAddress || !escrow.txId) {
+                return `❌ Escrow creation failed: ${escrow.error}`;
+            }
+            // Save to your DB using the specific RechargeCard schema
+            await RechargeCard_1.RechargeCardModel.create({
+                code: escrow.voucherCode,
+                amount: amount,
+                vaultAddress: escrow.vaultAddress,
+                fundingTxId: escrow.txId,
+                purchasedByPhone: senderPhone,
+                used: false
+            });
+            // Deduct internal balance (funds are securely locked on-chain)
+            user.balance -= amount;
+            await user.save();
+            return `✅ *Trustless Recharge Card Created*\n\n` +
+                `Code: *${escrow.voucherCode}*\n` +
+                `Amount: ${amount} KAS\n` +
+                `Vault: \`${escrow.vaultAddress}\`\n\n` +
+                `Funds are strictly locked on the blockchain until redeemed.`;
+        }
         // --- /redeem [code] ---
         if (msg.startsWith('/redeem')) {
             const parts = rawMsg.split(' ');
             if (parts.length < 2)
-                return 'Just need the code!\nUsage: redeem [code]\nExample: `redeem KASP-1234-5678`';
+                return 'Just need the code!\nUsage: redeem [code]\nExample: `redeem KASP-3D8A-AB8B-846F-2774`';
             let currentUser = user;
             if (!currentUser) {
                 const { publicKey, secret } = await kaspa_service_1.KaspaService.generateWallet();
@@ -340,23 +381,33 @@ exports.ChatbotService = {
                     balance: 0,
                 });
             }
-            const code = (0, voucherCode_1.normalizeVoucherCode)(parts[1]);
+            // Direct raw code extraction with debug logging
+            const rawInput = parts[1] || '';
+            const code = rawInput.trim().toUpperCase().replace(/[*_~]/g, '');
+            console.log(`[DEBUG_REDEEM] Searching database for raw code: "${code}"`);
             const card = await RechargeCard_1.RechargeCardModel.findOne({ code });
             if (!card) {
-                return "❌ *Invalid Voucher Code.* Please check the code and try again.";
+                return `❌ *Invalid Voucher Code.* Checked for: \`${code}\``;
             }
             if (card.used) {
                 return `❌ *Voucher Already Used.*\nThis code was redeemed on ${new Date(card.usedAt).toLocaleDateString()}.`;
             }
+            // Request Argent covenant redemption to unlock UTXO
+            const redemption = await vault_service_1.VaultService.redeemVoucherEscrow(currentUser.walletAddress, card.vaultAddress, code);
+            if (!redemption.success) {
+                return `❌ Blockchain rejected redemption: ${redemption.error}`;
+            }
+            // Update DB state
             card.used = true;
             card.usedBy = senderPhone;
             card.usedAt = new Date();
+            card.redeemTxId = redemption.txId;
             await card.save();
             currentUser.balance += card.amount;
             await currentUser.save();
             return (`🎉 *Voucher Successfully Redeemed!*\n\n` +
                 `• *Amount Credited:* +${card.amount.toFixed(4)} KAS\n` +
-                `• *Voucher Code:* \`${card.code}\`\n\n` +
+                `• *TXID:* \`${redemption.txId}\`\n\n` +
                 `💳 *Your New Balance:* *${currentUser.balance.toFixed(4)} KAS*\n\n` +
                 `Type *help* to spend your KAS on airtime, data, or utility bills!`);
         }
@@ -503,6 +554,8 @@ exports.ChatbotService = {
                 `   _Global Phone: send +12025550123 10_`,
                 `   _Local Phone: send 08012345678 10_`,
                 `   _External Wallet: send kaspa:qq123... 10_`,
+                `• *voucher [amount]*`,
+                `   _Example: voucher 50_`,
                 `• *redeem [code]*`,
                 `   _Example: redeem KASP-XXXX-XXXX_`,
                 `• *convert [network] [naira]*`,

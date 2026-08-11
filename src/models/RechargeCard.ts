@@ -1,5 +1,6 @@
 import { Schema, model, Document } from 'mongoose';
 
+
 export interface IRechargeCard extends Document {
   code: string;
   amount: number; // Amount in KAS
@@ -10,9 +11,15 @@ export interface IRechargeCard extends Document {
   usedBy?: string;
   usedAt?: Date;
   createdAt: Date;
+ 
+  // --- NEW COVENANT FIELDS (Made Optional) ---
+  vaultAddress?: string;
+  fundingTxId?: string;
+  redeemTxId?: string;
 }
 
-const RechargeCardSchema = new Schema<IRechargeCard>({
+
+const RechargeCardSchema = new Schema({
   code: { type: String, required: true, unique: true },
   amount: { type: Number, required: true },
   amountNaira: { type: Number },
@@ -22,6 +29,12 @@ const RechargeCardSchema = new Schema<IRechargeCard>({
   usedBy: { type: String },
   usedAt: { type: Date },
   createdAt: { type: Date, default: Date.now },
+ 
+  // --- NEW COVENANT FIELDS (Made Optional) ---
+  vaultAddress: { type: String },
+  fundingTxId: { type: String },
+  redeemTxId: { type: String }
 });
+
 
 export const RechargeCardModel = model<IRechargeCard>('RechargeCard', RechargeCardSchema);

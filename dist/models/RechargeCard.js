@@ -12,5 +12,9 @@ const RechargeCardSchema = new mongoose_1.Schema({
     usedBy: { type: String },
     usedAt: { type: Date },
     createdAt: { type: Date, default: Date.now },
+    // --- NEW COVENANT FIELDS (Made Optional) ---
+    vaultAddress: { type: String },
+    fundingTxId: { type: String },
+    redeemTxId: { type: String }
 });
 exports.RechargeCardModel = (0, mongoose_1.model)('RechargeCard', RechargeCardSchema);

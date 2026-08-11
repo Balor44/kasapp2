@@ -206,12 +206,13 @@ export const ChatbotService = {
     }
 
 
-    // Redeem Voucher Natural Synthesizer: "redeem KASP-1234-5678"
-    const redeemRegex = /^(?:redeem|claim)\s+(KASP-[a-zA-Z0-9-]+)$/i;
+    // Redeem Voucher Natural Synthesizer (Forgiving markdown matcher)
+    const redeemRegex = /(?:redeem|claim)\s+.*?(KASP-[a-zA-Z0-9-]+)/i;
     const redeemMatch = rawMsg.match(redeemRegex);
     if (redeemMatch) {
       const [, code] = redeemMatch;
-      return await ChatbotService.parse(phone, `/redeem ${code}`);
+      const cleanCode = code.replace(/[*_~]/g, '');
+      return await ChatbotService.parse(phone, `/redeem ${cleanCode}`);
     }
 
 
@@ -489,7 +490,7 @@ export const ChatbotService = {
         fundingTxId: escrow.txId,
         purchasedByPhone: senderPhone,
         used: false
-      } as any); 
+      } as any);
 
 
       // Deduct internal balance (funds are securely locked on-chain)
@@ -506,7 +507,7 @@ export const ChatbotService = {
 
 
     // --- /redeem [code] ---
-        if (msg.startsWith('/redeem')) {
+    if (msg.startsWith('/redeem')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 2) return 'Just need the code!\nUsage: redeem [code]\nExample: `redeem KASP-3D8A-AB8B-846F-2774`';
      
@@ -522,20 +523,12 @@ export const ChatbotService = {
       }
 
 
-      // Direct raw code extraction with debug logging
-      const rawInput = parts[1] || '';
-      const code = rawInput.trim().toUpperCase().replace(/[*_~]/g, '');
-
-      const allCards = await RechargeCardModel.find({});
-      console.log(`[DEBUG_DB] Railway sees ${allCards.length} total cards in DB:` + allCards.map(c => c.code).join(', '));
-      console.log(`[DEBUG_REDEEM] Searching database for raw code: "${code}"`);
-
-
+      const code = normalizeVoucherCode(parts[1]);
       const card = await RechargeCardModel.findOne({ code });
 
 
       if (!card) {
-        return `❌ *Invalid Voucher Code.* Checked for: \`${code}\``;
+        return "❌ *Invalid Voucher Code.* Please check the code and try again.";
       }
 
 
@@ -759,7 +752,7 @@ export const ChatbotService = {
         `• *voucher [amount]*`,
         `   _Example: voucher 50_`,
         `• *redeem [code]*`,
-        `   _Example: redeem KASP-XXXX-XXXX_`,
+        `   _Example: redeem KASP-XXXX-XXXX-XXXX-XXXX_`,
         `• *convert [network] [naira]*`,
         `   _Example: convert MTN 1000_\n`,
         `💡 *UTILITY BILLS (1-TAP)*`,
@@ -782,3 +775,5 @@ export const ChatbotService = {
     return "Sorry, I didn't quite catch that. Type *help* to see everything I can do.";
   },
 };
+
+

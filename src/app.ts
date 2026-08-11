@@ -36,6 +36,7 @@ import adminRoutes from './routes/admin.routes';
 import billpayRoutes from './routes/billpay.routes';
 import whatsappRoutes from './routes/whatsapp.routes'; 
 import paymentRoutes from './routes/payment.routes';
+import merchantRoutes from './routes/merchant.routes';
 
 
 const app = express();
@@ -46,6 +47,7 @@ app.use(express.json());
 // API Routes
 app.use('/api/wallet', walletRoutes);
 app.use('/api/billpay', billpayRoutes);
+app.use('/api/merchant', merchantRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/redeem', redeemRoutes);
 app.use('/api', messageRoutes);
