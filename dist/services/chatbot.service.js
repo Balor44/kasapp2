@@ -11,6 +11,7 @@ const kaspa_service_1 = require("../wallet/kaspa.service");
 const billpay_service_1 = require("./billpay.service");
 const price_1 = require("../utils/price");
 const phone_1 = require("../utils/phone");
+const voucherCode_1 = require("../utils/voucherCode");
 const subscription_controller_1 = require("../controllers/subscription.controller");
 const userState_service_1 = require("./userState.service");
 const whatsapp_service_1 = require("./whatsapp.service");
@@ -163,12 +164,13 @@ exports.ChatbotService = {
             const [, amount] = createVoucherMatch;
             return await exports.ChatbotService.parse(phone, `/voucher ${amount}`);
         }
-        // Redeem Voucher Natural Synthesizer: "redeem KASP-1234-5678"
-        const redeemRegex = /^(?:redeem|claim)\s+(KASP-[a-zA-Z0-9-]+)$/i;
+        // Redeem Voucher Natural Synthesizer (Forgiving markdown matcher)
+        const redeemRegex = /(?:redeem|claim)\s+.*?(KASP-[a-zA-Z0-9-]+)/i;
         const redeemMatch = rawMsg.match(redeemRegex);
         if (redeemMatch) {
             const [, code] = redeemMatch;
-            return await exports.ChatbotService.parse(phone, `/redeem ${code}`);
+            const cleanCode = code.replace(/[*_~]/g, '');
+            return await exports.ChatbotService.parse(phone, `/redeem ${cleanCode}`);
         }
         // Electricity Natural Synthesizer
         const elecRegex = /^(?:pay\s+)?electricity\s+(ikedc|ekedc|aedc|kedco|phed|ibedc|eedc|kaedco|jed|bedc|yedc)\s+(\d+)\s+(\d+)$/i;
@@ -381,13 +383,10 @@ exports.ChatbotService = {
                     balance: 0,
                 });
             }
-            // Direct raw code extraction with debug logging
-            const rawInput = parts[1] || '';
-            const code = rawInput.trim().toUpperCase().replace(/[*_~]/g, '');
-            console.log(`[DEBUG_REDEEM] Searching database for raw code: "${code}"`);
+            const code = (0, voucherCode_1.normalizeVoucherCode)(parts[1]);
             const card = await RechargeCard_1.RechargeCardModel.findOne({ code });
             if (!card) {
-                return `❌ *Invalid Voucher Code.* Checked for: \`${code}\``;
+                return "❌ *Invalid Voucher Code.* Please check the code and try again.";
             }
             if (card.used) {
                 return `❌ *Voucher Already Used.*\nThis code was redeemed on ${new Date(card.usedAt).toLocaleDateString()}.`;
@@ -557,7 +556,7 @@ exports.ChatbotService = {
                 `• *voucher [amount]*`,
                 `   _Example: voucher 50_`,
                 `• *redeem [code]*`,
-                `   _Example: redeem KASP-XXXX-XXXX_`,
+                `   _Example: redeem KASP-XXXX-XXXX-XXXX-XXXX_`,
                 `• *convert [network] [naira]*`,
                 `   _Example: convert MTN 1000_\n`,
                 `💡 *UTILITY BILLS (1-TAP)*`,

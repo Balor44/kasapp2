@@ -537,38 +537,43 @@ export const ChatbotService = {
       }
 
 
-      // Request Argent covenant redemption to unlock UTXO
-      const redemption = await VaultService.redeemVoucherEscrow(
-        currentUser.walletAddress!, 
-        (card as any).vaultAddress,
-        code
-      );
+      try {
+        // Request Argent covenant redemption to unlock UTXO
+        const redemption = await VaultService.redeemVoucherEscrow(
+          currentUser.walletAddress!,
+          (card as any).vaultAddress,
+          code
+        );
 
 
-      if (!redemption.success) {
-        return `❌ Blockchain rejected redemption: ${redemption.error}`;
+        if (!redemption.success) {
+          return `❌ Blockchain rejected redemption: ${redemption.error}`;
+        }
+
+
+        // Update DB state
+        card.used = true;
+        card.usedBy = senderPhone;
+        card.usedAt = new Date();
+        (card as any).redeemTxId = redemption.txId;
+        await card.save();
+
+
+        currentUser.balance += card.amount;
+        await currentUser.save();
+
+
+        return (
+          `🎉 *Voucher Successfully Redeemed!*\n\n` +
+          `• *Amount Credited:* +${card.amount.toFixed(4)} KAS\n` +
+          `• *TXID:* \`${redemption.txId}\`\n\n` +
+          `💳 *Your New Balance:* *${currentUser.balance.toFixed(4)} KAS*\n\n` +
+          `Type *help* to spend your KAS on airtime, data, or utility bills!`
+        );
+      } catch (error: any) {
+        console.error("[REDEEM_ERROR] Blockchain/Vault interaction failed:", error);
+        return `⚠️ *Redemption failed on-chain:* ${error.message || 'Unknown error occurred while contacting the vault.'}`;
       }
-
-
-      // Update DB state
-      card.used = true;
-      card.usedBy = senderPhone;
-      card.usedAt = new Date();
-      (card as any).redeemTxId = redemption.txId;
-      await card.save();
-
-
-      currentUser.balance += card.amount;
-      await currentUser.save();
-
-
-      return (
-        `🎉 *Voucher Successfully Redeemed!*\n\n` +
-        `• *Amount Credited:* +${card.amount.toFixed(4)} KAS\n` +
-        `• *TXID:* \`${redemption.txId}\`\n\n` +
-        `💳 *Your New Balance:* *${currentUser.balance.toFixed(4)} KAS*\n\n` +
-        `Type *help* to spend your KAS on airtime, data, or utility bills!`
-      );
     }
 
 
@@ -775,5 +780,3 @@ export const ChatbotService = {
     return "Sorry, I didn't quite catch that. Type *help* to see everything I can do.";
   },
 };
-
-

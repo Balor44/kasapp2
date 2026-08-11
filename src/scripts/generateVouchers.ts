@@ -1,16 +1,3 @@
-/**
- * Batch-generates redeemable KAS vouchers.
- *
- * Usage:
- *   ts-node src/scripts/generateVouchers.ts <amount> <count>
- *
- * Example — generate 100 vouchers worth 5 KAS each:
- *   ts-node src/scripts/generateVouchers.ts 5 100
- *
- * Writes a CSV of the generated codes to ./vouchers-<amount>KAS-<timestamp>.csv
- * so they can be handed to agents / printed / distributed. Codes are also
- * saved to RechargeCardModel so they're immediately redeemable in-app.
- */
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import fs from 'fs';
@@ -18,9 +5,12 @@ import path from 'path';
 import { RechargeCardModel } from '../models/RechargeCard';
 import { generateVoucherCode } from '../utils/voucherCode';
 
-async function generateVouchers(amount: number, count: number): Promise<string[]> {
-  const codes: string[] = [];
 
+const MONGO_URI = process.env.MONGODB_URI;
+
+
+async function generateVouchers(amount: number, count: number) {
+  const codes: string[] = [];
   for (let i = 0; i < count; i++) {
     let saved = false;
     while (!saved) {
@@ -30,51 +20,55 @@ async function generateVouchers(amount: number, count: number): Promise<string[]
         codes.push(code);
         saved = true;
       } catch (error: any) {
-        // Duplicate code (extremely rare given the code space) — just retry with a new one.
-        if (error.code === 11000) continue;
+        if (error.code === 11000) continue; // Retry on duplicate code
         throw error;
       }
     }
   }
-
   return codes;
 }
 
-async function main() {
-  const uri = process.env.DATABASE_URL || process.env.MONGO_URL || process.env.MONGODB_URI || process.env.MONGO_URI;
-  if (!uri) {
-    console.error('No database connection string found in .env (checked DATABASE_URL, MONGO_URL, MONGODB_URI, MONGO_URI).');
-    process.exit(1);
-  }
 
+async function main() {
   const [, , amountArg, countArg] = process.argv;
   const amount = parseFloat(amountArg);
   const count = parseInt(countArg, 10);
 
+
   if (!amount || amount <= 0 || !count || count <= 0) {
-    console.error('Usage: ts-node src/scripts/generateVouchers.ts <amount> <count>');
-    console.error('Example: ts-node src/scripts/generateVouchers.ts 5 100');
+    console.error('Usage: npx ts-node scripts/generateVouchers.ts  ');
+    console.error('Example: npx ts-node scripts/generateVouchers.ts 50 5');
     process.exit(1);
   }
 
-  await mongoose.connect(uri, {dbName: 'kasapp2' });
+
+  if (!MONGO_URI) {
+    console.error('❌ MONGODB_URI is missing from your environment variables!');
+    process.exit(1);
+  }
+
+
+  await mongoose.connect(MONGO_URI);
   console.log(`Generating ${count} voucher(s) worth ${amount} KAS each...`);
 
-  const codes = await generateVouchers(amount, count);
 
+  const codes = await generateVouchers(amount, count);
+  
   const filename = `vouchers-${amount}KAS-${Date.now()}.csv`;
   const filepath = path.join(process.cwd(), filename);
   const csvContent = ['code,amount', ...codes.map(c => `${c},${amount}`)].join('\n');
+  
   fs.writeFileSync(filepath, csvContent);
+  console.log(`✅ Done. ${codes.length} vouchers created and saved to live database.`);
+  console.log(`📄 CSV written to: ${filepath}`);
 
-  console.log(`Done. ${codes.length} vouchers created and saved to the database.`);
-  console.log(`Codes written to: ${filepath}`);
 
   await mongoose.disconnect();
+  process.exit(0);
 }
 
+
 main().catch((error) => {
-  console.error('Voucher generation failed:', error);
+  console.error('❌ Voucher generation failed:', error);
   process.exit(1);
 });
-

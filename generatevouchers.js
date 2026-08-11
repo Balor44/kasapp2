@@ -16,13 +16,20 @@ Object.defineProperty(exports, "__esModule", { value: true });
  * so they can be handed to agents / printed / distributed. Codes are also
  * saved to RechargeCardModel so they're immediately redeemable in-app.
  */
+import { RechargeCardModel } from "../models/RechargeCard";
+import { generateVoucherCode } from "../utils/voucherCode";
+
+
 require("dotenv/config");
 const mongoose_1 = __importDefault(require("mongoose"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-const RechargeCard_1 = require("./src/models/RechargeCard");
-const voucherCode_1 = require("../utils/voucherCode");
-const MONGO_URI = process.env.MONGO_URI;
+const MONGO_URI = process.env.MONGODB_URI;
+    if (!MONGO_URI) {
+        console.error(`MONGODB_URI is missing from environment variables!`);
+        process.exit(1);
+    }
+
 async function generateVouchers(amount, count) {
     const codes = [];
     for (let i = 0; i < count; i++) {
