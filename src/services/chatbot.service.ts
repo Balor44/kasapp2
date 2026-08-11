@@ -482,6 +482,7 @@ export const ChatbotService = {
       if (!escrow.success || !escrow.voucherCode || !escrow.vaultAddress || !escrow.txId) {
         return `❌ Escrow creation failed: ${escrow.error}`;
       }
+      const cleanVoucherCode = normalizeVoucherCode(escrow.voucherCode);
 
 
       // Save to your DB using the specific RechargeCard schema
