@@ -39,31 +39,30 @@ Clone the repository and install the dependencies:
 git clone [https://github.com/yourusername/kasapp.git](https://github.com/yourusername/kasapp.git)
 cd kasapp
 npm install
-
+```
 
 **3. Environment Setup**
 Copy the template environment file and fill in your specific details (database URI, encryption keys, and 2FA PIN):
 
 
-Bash
+```Bash
 cp .env.example .env
-
+```
 
 **4. Running the Server**
 For development:
 
 
-Bash
+```Bash
 npm run dev
-
+```
 
 For production:
 
-
-Bash
+``` Bash
 npm run build
 npm start
-
+```
 
 ## Security Note
 This infrastructure handles real KAS on mainnet. Ensure your ENCRYPTION_KEY and MERCHANT_API_KEY in the .env file are sufficiently long, secure, and never committed to version control.
