@@ -525,6 +525,9 @@ export const ChatbotService = {
       // Direct raw code extraction with debug logging
       const rawInput = parts[1] || '';
       const code = rawInput.trim().toUpperCase().replace(/[*_~]/g, '');
+
+      const allCards = await RechargeCardModel.find({});
+      console.log(`[DEBUG_DB] Railway sees ${allCards.length} total cards in DB:` + allCards.map(c => c.code).join(', '));
       console.log(`[DEBUG_REDEEM] Searching database for raw code: "${code}"`);
 
 
