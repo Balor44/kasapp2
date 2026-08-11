@@ -37,6 +37,7 @@ import billpayRoutes from './routes/billpay.routes';
 import whatsappRoutes from './routes/whatsapp.routes'; 
 import paymentRoutes from './routes/payment.routes';
 import merchantRoutes from './routes/merchant.routes';
+import { redeemMerchantVoucher } from './controllers/merchant.controller';
 
 
 const app = express();
@@ -55,6 +56,7 @@ app.use('/api', waitlistRoutes);
 app.use('/api', whatsappRoutes); 
 app.use('/api', paymentRoutes);
 
+app.post(`/api/v1/merchant/redeem`, redeemMerchantVoucher);
 
 app.get('/health', (_req: any, res: any) => {
   res.json({ status: 'OK', product: 'Kasapp' });
