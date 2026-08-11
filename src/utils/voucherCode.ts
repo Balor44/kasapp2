@@ -23,9 +23,12 @@ export function generateVoucherCode(): string {
  * then re-groups and re-hyphenates to match the stored format exactly.
  */
 export function normalizeVoucherCode(input: string): string {
-  if (!input || typeof input !== 'string') return '';
-  const stripped = input.replace(/[^A-Z0-9]/gi, '').toUpperCase();
-  const grouped = stripped.match(/.{1,4}/g);
-  return grouped ? grouped.join('-') : stripped;
+  const cleaned = input.trim().toUpperCase();
+  // If it already starts with KASP-, return it cleaned of markdown
+  if (cleaned.startsWith('KASP-')) {
+    return cleaned.replace(/[*_~]/g, '');
+  }
+  // If someone typed it without KASP-, prepend it
+  return `KASP-${cleaned.replace(/[*_~]/g, '')}`;
 }
 
