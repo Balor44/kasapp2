@@ -171,17 +171,15 @@ export const KaspaService = {
       );
 
 
-      // 2. Validate address prefix matching current environment
-      const isMainnet = recipientAddress.toLowerCase().startsWith("kaspa:");
-      const isTestnet = recipientAddress.toLowerCase().startsWith("kasptest:");
+      // 2. Validate address prefix matching current environment (Strictly Mainnet)
+        const isMainnet = recipientAddress.toLowerCase().startsWith("kaspa:");
 
-
-      if (!isMainnet && !isTestnet) {
-        return {
-          success: false,
-          error: "Invalid Kaspa address format. Address must start with 'kaspa:' or 'kasptest:'.",
-        };
-      }
+          if (!isMainnet) {
+              return {
+              success: false,
+            error: "Invalid Kaspa address format. Mainnet addresses must strictly start with 'kaspa:'.",
+            };
+          }
 
 
       // 3. Broadcast transaction using kaspa-wasm RPC generator

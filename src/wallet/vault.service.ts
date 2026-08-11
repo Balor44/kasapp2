@@ -44,7 +44,7 @@ export const VaultService = {
 
       console.log(`[VaultService] Binding Argent covenant creation using bytecode length: ${escrowArtifact.bytecode?.length || 0}`);
       
-      const simulatedVaultAddress = 'kaspatest:argent_escrow_' + codeHash.substring(0, 10);
+      const simulatedVaultAddress = 'kaspa:argent_escrow_' + codeHash.substring(0, 10);
       
       return { 
         success: true, 
