@@ -22,6 +22,9 @@ export const redeemMerchantVoucher = async (req: Request, res: Response) => {
 
 
     const cleanCode = normalizeVoucherCode(code);
+    console.log(`[API Debug] Raw code received from payload:`, code);
+    console.log(`[API Debug] Normalized code searching DB:`, cleanCode);
+    
     const voucher = await RechargeCardModel.findOne({ code: cleanCode });
     
     if (!voucher) {
