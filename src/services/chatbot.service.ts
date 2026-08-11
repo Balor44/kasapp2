@@ -134,8 +134,9 @@ export const ChatbotService = {
     // 3. NATURAL LANGUAGE / NON-SLASH PATTERN MATCHING & SYNTHESIS
     // -------------------------------------------------------------
    
+    if (!rawMsg.startsWith('/')) {
     // Balance Alias
-    if (['balance', 'bal', 'check balance', 'my balance', 'wallet'].includes(msg)) {
+      if (['balance', 'bal', 'check balance', 'my balance', 'wallet'].includes(msg)) {
       return await ChatbotService.parse(phone, '/balance');
     }
 
@@ -207,7 +208,7 @@ export const ChatbotService = {
 
 
     // Redeem Voucher Natural Synthesizer (Forgiving markdown matcher)
-    const redeemRegex = /(?:redeem|claim)\s+.*?(KASP-[a-zA-Z0-9-]+)/i;
+    const redeemRegex = /^(?:redeem|claim)\s+.*?(KASP-[a-zA-Z0-9-]+)/i;
     const redeemMatch = rawMsg.match(redeemRegex);
     if (redeemMatch) {
       const [, code] = redeemMatch;
@@ -241,6 +242,7 @@ export const ChatbotService = {
       const [, provider, account, amount] = waterMatch;
       return await ChatbotService.parse(phone, `/water ${provider.toUpperCase()} ${account} ${amount}`);
     }
+  }
 
 
     // -------------------------------------------------------------
