@@ -506,9 +506,9 @@ export const ChatbotService = {
 
 
     // --- /redeem [code] ---
-    if (msg.startsWith('/redeem')) {
+        if (msg.startsWith('/redeem')) {
       const parts = rawMsg.split(' ');
-      if (parts.length < 2) return 'Just need the code!\nUsage: redeem [code]\nExample: `redeem KASP-1234-5678`';
+      if (parts.length < 2) return 'Just need the code!\nUsage: redeem [code]\nExample: `redeem KASP-3D8A-AB8B-846F-2774`';
      
       let currentUser = user;
       if (!currentUser) {
@@ -522,12 +522,17 @@ export const ChatbotService = {
       }
 
 
-      const code = normalizeVoucherCode(parts[1]);
+      // Direct raw code extraction with debug logging
+      const rawInput = parts[1] || '';
+      const code = rawInput.trim().toUpperCase().replace(/[*_~]/g, '');
+      console.log(`[DEBUG_REDEEM] Searching database for raw code: "${code}"`);
+
+
       const card = await RechargeCardModel.findOne({ code });
 
 
       if (!card) {
-        return "❌ *Invalid Voucher Code.* Please check the code and try again.";
+        return `❌ *Invalid Voucher Code.* Checked for: \`${code}\``;
       }
 
 
@@ -538,8 +543,8 @@ export const ChatbotService = {
 
       // Request Argent covenant redemption to unlock UTXO
       const redemption = await VaultService.redeemVoucherEscrow(
-        currentUser.walletAddress!, // Ensure KAS goes directly to the redeemer <-- FIX APPLIED HERE
-        (card as any).vaultAddress!,
+        currentUser.walletAddress!, 
+        (card as any).vaultAddress,
         code
       );
 
@@ -553,7 +558,7 @@ export const ChatbotService = {
       card.used = true;
       card.usedBy = senderPhone;
       card.usedAt = new Date();
-      (card as any) .redeemTxId = redemption.txId;
+      (card as any).redeemTxId = redemption.txId;
       await card.save();
 
 
