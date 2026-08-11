@@ -1,26 +1,34 @@
 import crypto from 'crypto';
 
+
 // Excludes visually confusing characters: 0/O, 1/I/L
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
-/**
- * Generates a random voucher code in the format XXXX-XXXX-XXXX (12 chars, grouped).
- * Uses crypto.randomInt for cryptographically secure randomness — voucher codes
- * are effectively bearer cash, so they must not be predictable or brute-forceable.
- */
-export function generateVoucherCode(): string {
-  let raw = '';
-  for (let i = 0; i < 12; i++) {
-    raw += ALPHABET[crypto.randomInt(0, ALPHABET.length)];
-  }
-  return raw.match(/.{1,4}/g)!.join('-');
-}
 
 /**
- * Reconstructs a canonical XXXX-XXXX-XXXX code from whatever a user actually typed.
- * Strips anything that isn't a letter or digit — handles missing hyphens, stray
- * spaces, and mobile keyboards that autocorrect "-" into an en dash or similar —
- * then re-groups and re-hyphenates to match the stored format exactly.
+ * Generates a random voucher code in the format KASP-XXXX-XXXX-XXXX-XXXX
+ * Uses cryptographically secure randomness.
+ */
+export function generateVoucherCode(): string {
+  const segments: string[] = [];
+  
+  // Generate 4 segments of 4 characters each
+  for (let i = 0; i < 4; i++) {
+    let segment = '';
+    for (let j = 0; j < 4; j++) {
+      const randomIndex = crypto.randomInt(0, ALPHABET.length);
+      segment += ALPHABET[randomIndex];
+    }
+    segments.push(segment);
+  }
+  
+  // Don't forget the closing backtick!
+  return `KASP-${segments.join('-')}`; 
+}
+
+
+/**
+ * Reconstructs a canonical code from whatever a user actually typed.
  */
 export function normalizeVoucherCode(input: string): string {
   const cleaned = input.trim().toUpperCase();
@@ -31,4 +39,3 @@ export function normalizeVoucherCode(input: string): string {
   // If someone typed it without KASP-, prepend it
   return `KASP-${cleaned.replace(/[*_~]/g, '')}`;
 }
-
