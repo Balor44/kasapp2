@@ -31,11 +31,14 @@ export function generateVoucherCode(): string {
  * Reconstructs a canonical code from whatever a user actually typed.
  */
 export function normalizeVoucherCode(input: string): string {
-  const cleaned = input.trim().toUpperCase();
-  // If it already starts with KASP-, return it cleaned of markdown
+  // 1. Strip whitespace, uppercase, AND remove markdown all at once
+  const cleaned = input.trim().toUpperCase().replace(/[*_~]/g, '');
+  
+  // 2. Now check if it has the prefix
   if (cleaned.startsWith('KASP-')) {
-    return cleaned.replace(/[*_~]/g, '');
+    return cleaned;
   }
-  // If someone typed it without KASP-, prepend it
-  return `KASP-${cleaned.replace(/[*_~]/g, '')}`;
+  
+  // 3. Prepend if missing
+  return `KASP-${cleaned}`;
 }
