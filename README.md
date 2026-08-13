@@ -36,8 +36,8 @@ The primary friction point for new blockchain users is wallet complexity. Kasapp
 **2. Installation**
 Clone the repository and install the dependencies:
 ```bash
-git clone [https://github.com/yourusername/kasapp.git](https://github.com/yourusername/kasapp.git)
-cd kasapp
+git clone [https://github.com/balor44/kasapp2.git]
+cd kasapp2
 npm install
 ```
 
@@ -68,5 +68,5 @@ npm start
 This infrastructure handles real KAS on mainnet. Ensure your ENCRYPTION_KEY and MERCHANT_API_KEY in the .env file are sufficiently long, secure, and never committed to version control.
 
 
-License
-MIT
+### License
+### MIT
