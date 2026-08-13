@@ -36,8 +36,8 @@ The primary friction point for new blockchain users is wallet complexity. Kasapp
 **2. Installation**
 Clone the repository and install the dependencies:
 ```bash
-git clone [https://github.com/yourusername/kasapp.git](https://github.com/yourusername/kasapp.git)
-cd kasapp
+git clone [https://github.com/balor44/kasapp2.git]
+cd kasapp2
 npm install
 ```
 
