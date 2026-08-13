@@ -16,5 +16,7 @@ router.post('/payment/flutterwave-webhook', PaymentController.handleFlutterwaveW
 // Route called by frontend after redirect to fetch the generated voucher
 router.get('/payment/verify', PaymentController.verifyVoucherQuery);
 
+router.post(`/webhooks/paystack`, PaymentController.handlePaystackWebhook);
+
 
 export default router;

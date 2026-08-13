@@ -6,6 +6,7 @@ import { nairaToKAS } from '../utils/price';
 
 
 const FLUTTERWAVE_SECRET_KEY = process.env.FLW_SECRET_KEY || '';
+const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || '';
 const BOT_PHONE = process.env.WHATSAPP_BOT_NUMBER || '2348000000000'; // E.164 format without '+'
 
 
@@ -27,61 +28,104 @@ export function buildWhatsAppRedeemUrl(voucherCode: string): string {
 
 export const PaymentController = {
   /**
-   * 1. Initialize Flutterwave Payment Link
+   * 1. Initialize Payment Link (Routes to Paystack or Flutterwave)
    */
   initializeVoucherPurchase: async (req: Request, res: Response) => {
     try {
-      const { email, phone, amountNaira, currency = 'NGN' } = req.body;
+      const { email, phone, amountNaira, currency = 'NGN', gateway = 'flutterwave' } = req.body;
 
 
-      if (!email || !phone || !amountNaira || amountNaira < 100) {
+      // Minimum amount updated to 3000 to match new frontend rules
+      if (!email || !phone || !amountNaira || amountNaira < 3000) {
         return res.status(400).json({
-          error: 'Valid email, phone, and minimum amount of 100 required.'
+          error: 'Valid email, phone, and minimum amount of ₦3,000 required.'
         });
       }
 
 
       const tx_ref = `KASAPP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-     
-      const payload = {
-        tx_ref,
-        amount: amountNaira,
-        currency,
-        redirect_url: req.body.redirect_url || `${req.headers.origin || 'https://kasapp.app'}/payment-success`,
-        customer: {
+      const redirect_url = req.body.redirect_url || `${req.headers.origin || 'https://kasapp.app'}/payment-success`;
+      
+      // ---------------------------------------------------------
+      // ROUTE A: PAYSTACK INTEGRATION
+      // ---------------------------------------------------------
+      if (gateway === 'paystack') {
+        const paystackPayload = {
           email,
-          phonenumber: phone,
-          name: `User ${phone}`,
-        },
-        customizations: {
-          title: 'Kasapp Voucher Purchase',
-          description: `Purchase Kaspa voucher worth ${currency} ${amountNaira}`,
-        },
-        meta: {
-          user_phone: phone,
-          amount_naira: amountNaira,
-        },
-      };
+          amount: amountNaira * 100, // Paystack requires amounts in Kobo (multiply by 100)
+          reference: tx_ref,
+          callback_url: redirect_url,
+          metadata: {
+            user_phone: phone, // Pass custom meta so we can grab it in the webhook
+            amount_naira: amountNaira
+          }
+        };
 
 
-      // Using Axios for cleaner integration, matching your billpay.service.ts
-      const response = await axios.post(
-        'https://api.flutterwave.com/v3/payments',
-        payload,
-        { headers: { Authorization: `Bearer ${FLUTTERWAVE_SECRET_KEY}`, 'Content-Type': 'application/json' } }
-      );
+        const response = await axios.post(
+          'https://api.paystack.co/transaction/initialize',
+          paystackPayload,
+          { headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`, 'Content-Type': 'application/json' } }
+        );
 
 
-      if (response.data.status === 'success') {
-        return res.status(200).json({
-          status: 'success',
-          payment_url: response.data.data.link,
-          tx_ref,
-        });
+        if (response.data.status) {
+          return res.status(200).json({
+            status: 'success',
+            payment_url: response.data.data.authorization_url,
+            tx_ref,
+          });
+        }
+        return res.status(400).json({ error: 'Failed to generate Paystack link' });
       }
 
 
-      return res.status(400).json({ error: 'Failed to generate payment link' });
+      // ---------------------------------------------------------
+      // ROUTE B: FLUTTERWAVE INTEGRATION
+      // ---------------------------------------------------------
+      if (gateway === 'flutterwave') {
+        const flutterwavePayload = {
+          tx_ref,
+          amount: amountNaira,
+          currency,
+          redirect_url,
+          customer: {
+            email,
+            phonenumber: phone,
+            name: `User ${phone}`,
+          },
+          customizations: {
+            title: 'Kasapp Voucher Purchase',
+            description: `Purchase Kaspa voucher worth ${currency} ${amountNaira}`,
+          },
+          meta: {
+            user_phone: phone,
+            amount_naira: amountNaira,
+          },
+        };
+
+
+        const response = await axios.post(
+          'https://api.flutterwave.com/v3/payments',
+          flutterwavePayload,
+          { headers: { Authorization: `Bearer ${FLUTTERWAVE_SECRET_KEY}`, 'Content-Type': 'application/json' } }
+        );
+
+
+        if (response.data.status === 'success') {
+          return res.status(200).json({
+            status: 'success',
+            payment_url: response.data.data.link,
+            tx_ref,
+          });
+        }
+        return res.status(400).json({ error: 'Failed to generate Flutterwave link' });
+      }
+
+
+      return res.status(400).json({ error: 'Invalid payment gateway selected' });
+
+
     } catch (error: any) {
       console.error('[Payment Init Error]:', error.response?.data || error.message);
       return res.status(500).json({ error: 'Internal payment initialization error' });
@@ -90,7 +134,7 @@ export const PaymentController = {
 
 
   /**
-   * 2. Automated Webhook Listener (Handles the actual DB creation in the background)
+   * 2. Automated Webhook Listener: Flutterwave
    */
   handleFlutterwaveWebhook: async (req: Request, res: Response) => {
     try {
@@ -106,25 +150,21 @@ export const PaymentController = {
       const payload = req.body;
 
 
-      // Listen for completed charges
       if (payload.event === 'charge.completed' && payload.data.status === 'successful') {
         const { amount, customer, meta, tx_ref } = payload.data;
         const userPhone = meta?.user_phone || customer?.phonenumber;
 
 
-        // Prevent duplicate processing
         const existingVoucher = await RechargeCardModel.findOne({ transactionRef: tx_ref });
         if (existingVoucher) {
-          return res.status(200).json({ status: 'already_processed' }); // Flw just needs a 200 OK
+          return res.status(200).json({ status: 'already_processed' });
         }
 
 
-        // Convert Naira amount to KAS value using the Live Oracle
         const kasAmount = await nairaToKAS(amount);
         const voucherCode = generateVoucherCode();
 
 
-        // Create voucher entry in Database using your exact schema
         const newVoucher: IRechargeCard = await RechargeCardModel.create({
           code: voucherCode,
           amount: kasAmount,
@@ -133,13 +173,10 @@ export const PaymentController = {
           purchasedByPhone: userPhone,
           used: false,
           createdAt: new Date(),
-        }) as unknown as IRechargeCard; // <-- Type assertion applied here
+        }) as unknown as IRechargeCard;
 
 
-        console.log(`[Webhook: Voucher Created] Code: ${newVoucher.code} | Value: ${kasAmount} KAS | Phone: ${userPhone}`);
-
-
-        // Acknowledge receipt to Flutterwave so they stop retrying the webhook
+        console.log(`[Flutterwave Webhook: Voucher Created] Code: ${newVoucher.code} | Value: ${kasAmount} KAS | Phone: ${userPhone}`);
         return res.status(200).json({ status: 'success' });
       }
 
@@ -153,8 +190,66 @@ export const PaymentController = {
 
 
   /**
-   * 3. NEW: Fetch Voucher for the Frontend
-   * The frontend calls this when the user is redirected back to /payment-success?tx_ref=XXXX
+   * 3. NEW: Automated Webhook Listener: Paystack
+   * Route this to POST /api/webhooks/paystack in your Express router
+   */
+  handlePaystackWebhook: async (req: Request, res: Response) => {
+    try {
+      // Paystack signature verification (HMAC SHA512)
+      const hash = crypto.createHmac('sha512', PAYSTACK_SECRET_KEY)
+                         .update(JSON.stringify(req.body))
+                         .digest('hex');
+                         
+      if (hash !== req.headers['x-paystack-signature']) {
+        return res.status(401).send('Unauthorized Paystack signature.');
+      }
+
+
+      const event = req.body;
+
+
+      if (event.event === 'charge.success') {
+        const { amount, reference, metadata } = event.data;
+        const amountNaira = amount / 100; // Convert back from Kobo
+        const userPhone = metadata?.user_phone || 'Unknown';
+
+
+        const existingVoucher = await RechargeCardModel.findOne({ transactionRef: reference });
+        if (existingVoucher) {
+          return res.status(200).json({ status: 'already_processed' });
+        }
+
+
+        const kasAmount = await nairaToKAS(amountNaira);
+        const voucherCode = generateVoucherCode();
+
+
+        const newVoucher: IRechargeCard = await RechargeCardModel.create({
+          code: voucherCode,
+          amount: kasAmount,
+          amountNaira: amountNaira,
+          transactionRef: reference, // Paystack calls it reference, but it maps to our tx_ref
+          purchasedByPhone: userPhone,
+          used: false,
+          createdAt: new Date(),
+        }) as unknown as IRechargeCard;
+
+
+        console.log(`[Paystack Webhook: Voucher Created] Code: ${newVoucher.code} | Value: ${kasAmount} KAS | Phone: ${userPhone}`);
+        return res.status(200).json({ status: 'success' });
+      }
+
+
+      return res.status(200).json({ status: 'ignored_event' });
+    } catch (error: any) {
+      console.error('[Paystack Webhook Error]:', error);
+      return res.status(500).json({ error: 'Webhook processing failed.' });
+    }
+  },
+
+
+  /**
+   * 4. Fetch Voucher for the Frontend
    */
   verifyVoucherQuery: async (req: Request, res: Response) => {
     try {
@@ -166,11 +261,7 @@ export const PaymentController = {
       }
 
 
-      // Explicitly cast tx_ref to a clean string to satisfy Mongoose and TS types
       const cleanTxRef = String(tx_ref);
-
-
-      // Check if the webhook has finished creating the voucher
       const voucher = await RechargeCardModel.findOne({ transactionRef: cleanTxRef });
 
 
