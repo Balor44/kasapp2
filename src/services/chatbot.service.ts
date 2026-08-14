@@ -536,21 +536,21 @@ export const ChatbotService = {
 
 
       try {
-        const operatorSeed = process.env.OPERATOR_ENCRYPTED_SEED || "";
-        if (!operatorSeed) return "❌ Operator wallet not configured for payouts.";
+        const operatorMnemonic = process.env.OPERATOR_WALLET_MNEMONIC || "";
+        if (!operatorMnemonic) return "❌ Operator wallet not configured for payouts.";
 
 
         // [ON-CHAIN TRIGGER ENABLED] 
         // Force the central operator wallet to physically transfer the funds to the user's Kaspa address
-        const txResult = await KaspaService.sendExternalTransaction(
-          operatorSeed,
+        const txID = await KaspaService.sendExternalTransaction(
+          operatorMnemonic,
           currentUser.walletAddress!,
           card.amount
         );
 
 
-        if (!txResult.success) {
-          return `❌ Blockchain rejected redemption: ${txResult.error}`;
+        if (!txID.success) {
+          return `❌ Blockchain rejected redemption: ${txID.error}`;
         }
 
 
@@ -558,7 +558,7 @@ export const ChatbotService = {
         card.used = true;
         card.usedBy = senderPhone;
         card.usedAt = new Date();
-        (card as any).redeemTxId = txResult.txId;
+        (card as any).redeemTxId = txID;
         await card.save();
 
 
@@ -569,7 +569,7 @@ export const ChatbotService = {
         return (
           `🎉 *Voucher Successfully Redeemed!*\n\n` +
           `• *Amount Credited:* +${card.amount.toFixed(4)} KAS\n` +
-          `• *TXID:* \`${txResult.txId}\`\n\n` +
+          `• *TXID:* \`${txID}\`\n\n` +
           `💳 *Your New Balance:* *${currentUser.balance.toFixed(4)} KAS*\n\n` +
           `Type *help bills* to spend your KAS on airtime or utilities!`
         );
