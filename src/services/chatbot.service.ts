@@ -558,7 +558,7 @@ export const ChatbotService = {
         card.used = true;
         card.usedBy = senderPhone;
         card.usedAt = new Date();
-        (card as any).redeemTxId = txID;
+        (card as any).redeemTxId = typeof txID === 'object' ? txID.txId : txID;
         await card.save();
 
 
