@@ -31,7 +31,7 @@ export const ChatbotService = {
   parse: async (phone: string, message: string): Promise<string> => {
     const rawMsg = message.trim();
     const msg = rawMsg.toLowerCase();
-    const senderPhone = normalizePhone(phone); 
+    const senderPhone = normalizePhone(phone);
 
 
     // -------------------------------------------------------------
@@ -138,7 +138,7 @@ export const ChatbotService = {
       }
 
 
-      // Help Alias (Now intercepts nested help commands like 'help bills')
+      // Help Alias
       if (msg.startsWith('help ') || msg.startsWith('menu ')) {
         const topic = msg.split(' ')[1];
         return await ChatbotService.parse(phone, `/help ${topic}`);
@@ -429,7 +429,7 @@ export const ChatbotService = {
       }
 
 
-      // [ON-CHAIN TRIGGER ENABLED] 
+      // [ON-CHAIN TRIGGER ENABLED]
       // Decrypting the sender's mnemonic to physically move funds to the recipient's Kaspa address
       const txResult = await KaspaService.sendExternalTransaction(user.mnemonic, recipientUser.walletAddress!, amount);
       
@@ -454,9 +454,11 @@ export const ChatbotService = {
         `Type *balance* to view your total wallet funds or *help* to spend it!`;
 
 
-      sendWhatsAppNotification(normalizedTargetPhone, recipientNotificationText).catch((err) => {
+      try {
+        await sendWhatsAppNotification(normalizedTargetPhone, recipientNotificationText);
+      } catch (err) {
         console.error('[RECIPIENT_NOTIFICATION_ERROR]', err);
-      });
+      }
 
 
       return (
@@ -540,7 +542,7 @@ export const ChatbotService = {
         if (!operatorMnemonic) return "❌ Operator wallet not configured for payouts.";
 
 
-        // [ON-CHAIN TRIGGER ENABLED] 
+        // [ON-CHAIN TRIGGER ENABLED]
         // Force the central operator wallet to physically transfer the funds to the user's Kaspa address
         const txID = await KaspaService.sendExternalTransaction(
           operatorMnemonic,
@@ -554,11 +556,12 @@ export const ChatbotService = {
         }
 
 
+        const finalTxID = typeof txID === 'object' ? txID.txId : txID;
         // Update DB state ONLY after network confirms
         card.used = true;
         card.usedBy = senderPhone;
         card.usedAt = new Date();
-        (card as any).redeemTxId = typeof txID === 'object' ? txID.txId : txID;
+        (card as any).redeemTxId = finalTxID; // Saved as pure string
         await card.save();
 
 
@@ -569,7 +572,7 @@ export const ChatbotService = {
         return (
           `🎉 *Voucher Successfully Redeemed!*\n\n` +
           `• *Amount Credited:* +${card.amount.toFixed(4)} KAS\n` +
-          `• *TXID:* \`${txID}\`\n\n` +
+          `• *TXID:* \`${finalTxID}\`\n\n` +
           `💳 *Your New Balance:* *${currentUser.balance.toFixed(4)} KAS*\n\n` +
           `Type *help bills* to spend your KAS on airtime or utilities!`
         );
@@ -648,7 +651,7 @@ export const ChatbotService = {
       if (isNaN(amountNaira) || amountNaira <= 0) return "Invalid airtime amount.";
 
 
-      const kasEquivalent = await nairaToKAS(amountNaira * 0.85); 
+      const kasEquivalent = await nairaToKAS(amountNaira * 0.85);
 
 
       return (
@@ -749,7 +752,14 @@ export const ChatbotService = {
 
 
       if (topic === 'send') {
-        return `💸 *How to Send KAS*\n\nTo send Kaspa instantly, type:\n*send [Phone Number] [Amount]*\n\n_Example:_\n\`send 08012345678 150\``;
+        return (
+          `💸 *How to Send KAS*\n\n` +
+          `To send Kaspa instantly, type:\n` +
+          `*send [Phone Number or Address] [Amount]*\n\n` +
+          `_Examples:_\n` +
+          `• Phone: \`send 08012345678 150\`\n` +
+          `• Wallet: \`send kaspa:qq123456789... 150\``
+        );
       }
       
       if (topic === 'bills') {
