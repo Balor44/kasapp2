@@ -70,7 +70,7 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
             "conversationalReply": string | null
           }`
         },
-        
+
         {
           role: "user",
           content: `Extract intent and parameters from this: "${userMessage}"`
@@ -82,11 +82,20 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
     const content = completion.choices[0]?.message?.content;
     if (content) {
-      console.log(`[Kasapp AI Parser] Parsed:`, content);
-      return JSON.parse(content) as IntentResponse;
+      console.log(`[Kasapp AI Parser] Raw AI Output:`, content);
+      
+      // FIX: Strip markdown code blocks if the AI decided to add them
+      const cleanContent = content.replace(/```json/gi, '').replace(/```/gi, '').trim();
+      
+      const parsed = JSON.parse(cleanContent) as IntentResponse;
+      
+      // Normalize intent casing just in case the AI returns "send_kas" instead of "SEND_KAS"
+      if (parsed.intent) parsed.intent = parsed.intent.toUpperCase() as any;
+      
+      return parsed;
     }
   } catch (error: any) {
-    console.error(`[Kasapp AI Parser] AgentRouter error:`, error?.message || error);
+    console.error(`[Kasapp AI Parser] Error cleaning or parsing JSON:`, error?.message || error);
   }
 
 
