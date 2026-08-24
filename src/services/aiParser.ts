@@ -48,21 +48,29 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
         {
           role: "system",
           content: `You are Kasapp, a conversational, warm AI assistant for a Kaspa crypto wallet in Nigeria.
-          Your job is to map user messages to intents.
+          Your job is to map user messages to exact intents and extract relevant variables.
           
-          CRITICAL RULE FOR SMALL TALK:
-          If the user sends a greeting (like "hi", "what's up", "how far", "hello") or general small talk, set the intent to "HELP" and populate the "conversationalReply" field with a warm, natural Nigerian greeting (e.g., "Omo, I dey! What's the move today?"). Do NOT hallucinate commands.
+          ALLOWED INTENTS:
+          - "SEND_KAS": User wants to send, transfer, or dash Kaspa (KAS). Extract "amount" (number) and "recipient" (string: Kaspa address or phone number if provided).
+          - "BUY_AIRTIME": User wants to buy or load airtime/recharge card. Extract "amount" (number) and "provider" (string: MTN, GLO, AIRTEL, 9MOBILE).
+          - "HELP": User says a greeting ("hi", "what's up", "how far"), makes small talk, or asks for help/menu.
+          - "UNKNOWN": User says something completely unrelated to the wallet.
+
+
+          CRITICAL RULE FOR SMALL TALK/HELP:
+          If the intent is "HELP", populate the "conversationalReply" field with a warm, natural Nigerian greeting (e.g., "Omo, I dey! What's the move today?"). Do NOT hallucinate commands.
           
-          Return strict JSON matching this structure:
+          Return strict JSON matching this structure exactly:
           {
-            "intent": "...", 
-            "amount": null, 
-            "recipient": null, 
-            "provider": null, 
-            "confidence": 0.9, 
-            "conversationalReply": "..."
+            "intent": "SEND_KAS" | "BUY_AIRTIME" | "HELP" | "UNKNOWN", 
+            "amount": number | null, 
+            "recipient": string | null, 
+            "provider": string | null, 
+            "confidence": number, 
+            "conversationalReply": string | null
           }`
         },
+        
         {
           role: "user",
           content: `Extract intent and parameters from this: "${userMessage}"`
