@@ -163,7 +163,22 @@ router.post(
 
 
             // ---------------------------------------------------------------
-            // STEP B: AWAITING PIN
+            // STEP B: AWAITING NEW PIN (For PIN Setup)
+            // ---------------------------------------------------------------
+            if (userState.step === 'AWAITING_NEW_PIN') {
+              const newPin = textBody;
+              
+              // Pass silently to backend
+              const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, `/setpin ${newPin}`);
+              
+              await clearUserState(senderPhone);
+              await WhatsAppService.sendMessage(senderPhone, resultMessage);
+              continue;
+            }
+
+
+            // ---------------------------------------------------------------
+            // STEP C: AWAITING PIN (For Transactions)
             // ---------------------------------------------------------------
             if (userState.step === 'AWAITING_PIN') {
               const user = await UserModel.findOne({ phone: senderPhone });
@@ -171,7 +186,7 @@ router.post(
                 await clearUserState(senderPhone);
                 await WhatsAppService.sendMessage(
                   senderPhone,
-                  '⚠️ *Security PIN Required*\n\nYou have not set a transaction PIN. Type: */setpin [4-6 digits]*'
+                  '⚠️ *Security PIN Required*\n\nYou have not set a transaction PIN. Reply with "Set my PIN" to create one.'
                 );
                 continue;
               }
@@ -212,12 +227,32 @@ router.post(
 
 
             // ---------------------------------------------------------------
-            // STEP C: IDLE STATE -> AI INTENT PARSER
+            // STEP D: IDLE STATE -> AI INTENT PARSER
             // ---------------------------------------------------------------
             const parsed = await parseWhatsAppMessage(textBody);
             console.log(`[AI Intent Result]`, parsed);
 
 
+            // HANDLE PIN INTENT
+            if (parsed.intent === 'SET_PIN') {
+              if (parsed.pin) {
+                // One-shot execution: User said "Set my pin to 1234"
+                const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, `/setpin ${parsed.pin}`);
+                await WhatsAppService.sendMessage(senderPhone, resultMessage);
+                continue;
+              }
+              
+              // Multi-step: User just said "I want to set a pin"
+              await saveUserState(senderPhone, { step: 'AWAITING_NEW_PIN' });
+              await WhatsAppService.sendMessage(
+                senderPhone,
+                `🔐 Let's secure your wallet. Please reply with a new 4 to 6 digit PIN:`
+              );
+              continue;
+            }
+
+
+            // HANDLE SEND INTENT
             if (parsed.intent === 'SEND_KAS') {
               const amount = parsed.amount;
 
@@ -260,6 +295,7 @@ router.post(
             }
 
 
+            // HANDLE AIRTIME INTENT
             if (parsed.intent === 'BUY_AIRTIME') {
               const amount = parsed.amount;
               const provider = (parsed.provider || 'MTN').toUpperCase();
