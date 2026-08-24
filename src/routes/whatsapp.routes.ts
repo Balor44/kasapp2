@@ -1,7 +1,12 @@
 import { Router, Request, Response } from 'express';
 import express from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import { getUserState, saveUserState, clearUserState, UserState } from '../services/userState.service';
+import { parseWhatsAppMessage } from '../services/aiParser';
+import { WhatsAppService } from '../services/whatsapp.service';
+import { UserModel } from '../models/User'; // Import your user model
+import { ChatbotService } from '../services/chatbot.service'; // Import ChatbotService to execute actions
 
 
 const router = Router();
@@ -40,7 +45,6 @@ const verifyMetaSignature = (req: Request, res: Response, buf: Buffer, encoding:
 
 
 // 2. GET: META VERIFICATION HANDSHAKE
-// Endpoint: GET /api/whatsapp/webhook
 router.get('/webhook', (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -57,17 +61,14 @@ router.get('/webhook', (req: Request, res: Response) => {
 
 
 // 3. POST: RECEIVE MESSAGES
-// Endpoint: POST /api/whatsapp/webhook
 router.post(
   '/webhook',
   express.raw({ type: 'application/json', verify: verifyMetaSignature }),
   (req: Request, res: Response) => {
-    // Return 200 OK immediately to Meta
     res.sendStatus(200);
 
 
     try {
-      // Parse the raw buffer into JSON now that verification has passed
       const body = JSON.parse(req.body.toString());
 
 
@@ -79,27 +80,114 @@ router.post(
           if (changes.messages && changes.messages.length > 0) {
             const message = changes.messages[0];
             const senderPhone = message.from;
-            
+           
             if (message.type === 'text') {
               const textBody = message.text.body.trim();
               console.log(`Received message from ${senderPhone}: ${textBody}`);
              
-              // 1. Fetch the user's current memory state from Redis
               getUserState(senderPhone).then(async (userState) => {
                
-                // 2. Route the message based on their current step
+                // ==========================================
+                // 🔐 PIN VERIFICATION & EXECUTION BLOCK
+                // ==========================================
                 if (userState.step === 'AWAITING_PIN') {
                    console.log(`User is confirming a tx. Verifying PIN: ${textBody}`);
-                   // TODO: verifyPinAndExecute(userState, textBody)...
+                   
+                   // 1. Fetch user to get hashed PIN
+                   const user = await UserModel.findOne({ phone: senderPhone });
+                   
+                   if (!user || !user.pin) {
+                     await clearUserState(senderPhone);
+                     await WhatsAppService.sendMessage(senderPhone, "⚠️ *Security PIN Required*\n\nYou must set a security PIN before transacting. Type: */setpin [4-6 digits]* to set your PIN first.");
+                     return;
+                   }
+
+
+                   // 2. Verify the PIN using bcrypt (same as your seed export logic)
+                   const isMatch = await bcrypt.compare(textBody, user.pin);
+                   
+                   if (!isMatch) {
+                     await clearUserState(senderPhone);
+                     await WhatsAppService.sendMessage(senderPhone, '❌ *Incorrect Security PIN.*\n\nTransaction cancelled for your protection.');
+                     return;
+                   }
+
+
+                   // 3. PIN IS CORRECT! Execute the transaction via ChatbotService
+                   await WhatsAppService.sendMessage(senderPhone, '🔄 Processing your transaction...');
+                   
+                   let resultMessage = '';
+                   if (userState.intent === 'SEND_KAS') {
+                       // Map state data back to ChatbotService command
+                       const command = `/send ${userState.recipient} ${userState.amount}`;
+                       resultMessage = await ChatbotService.processIncomingMessage(senderPhone, command);
+                   } else if (userState.intent === 'BUY_AIRTIME') {
+                       const command = `/airtime ${userState.provider} ${senderPhone} ${userState.amount}`;
+                       resultMessage = await ChatbotService.processIncomingMessage(senderPhone, command);
+                   }
+                   
+                   // Clear state after execution and send the result
+                   await clearUserState(senderPhone);
+                   await WhatsAppService.sendMessage(senderPhone, resultMessage);
                 }
+                
+                // ==========================================
+                // 📍 RECIPIENT COLLECTION BLOCK
+                // ==========================================
                 else if (userState.step === 'AWAITING_RECIPIENT') {
                    console.log(`User provided recipient: ${textBody}`);
-                   // TODO: update state, ask for PIN...
+                   
+                   await saveUserState(senderPhone, {
+                     ...userState,
+                     step: 'AWAITING_PIN',
+                     recipient: textBody
+                   });
+                   await WhatsAppService.sendMessage(senderPhone, `Great. Please reply with your PIN to confirm sending ${userState.amount} KAS to ${textBody}.`);
                 }
+                
+                // ==========================================
+                // 🧠 AI INTENT PARSER BLOCK (IDLE STATE)
+                // ==========================================
                 else {
-                   // User is in MAIN_MENU / IDLE. This is a brand new request.
                    console.log(`New request. Sending to AI Intent Parser: ${textBody}`);
-                   // TODO: const aiResponse = await parseIntentWithAI(textBody);
+                   
+                   const parsed = await parseWhatsAppMessage(textBody);
+                   console.log('AI Parsed Intent:', parsed);
+
+
+                   if (parsed.intent === 'SEND_KAS') {
+                      if (!parsed.recipient || parsed.recipient === '+' || parsed.recipient.trim() === '') {
+                         await saveUserState(senderPhone, {
+                           step: 'AWAITING_RECIPIENT',
+                           intent: 'SEND_KAS',
+                           amount: parsed.amount
+                         });
+                         await WhatsAppService.sendMessage(senderPhone, `Got it. You want to send ${parsed.amount || ''} KAS. Please reply with the recipient's Kaspa address or phone number:`);
+                         return;
+                      }
+
+
+                      await saveUserState(senderPhone, {
+                           step: 'AWAITING_PIN',
+                           intent: 'SEND_KAS',
+                           amount: parsed.amount,
+                           recipient: parsed.recipient
+                      });
+                      await WhatsAppService.sendMessage(senderPhone, `Sending ${parsed.amount} KAS to ${parsed.recipient}. Please reply with your PIN to confirm:`);
+                   } 
+                   else if (parsed.intent === 'BUY_AIRTIME') {
+                      await saveUserState(senderPhone, {
+                        step: 'AWAITING_PIN',
+                        intent: 'BUY_AIRTIME',
+                        amount: parsed.amount,
+                        provider: parsed.provider
+                      });
+                      await WhatsAppService.sendMessage(senderPhone, `You want to buy ${parsed.amount} NGN airtime. Please reply with your PIN to confirm:`);
+                   }
+                   else {
+                      const reply = parsed.conversationalReply || "Welcome to Kasapp! What would you like to do today?";
+                      await WhatsAppService.sendMessage(senderPhone, reply);
+                   }
                 }
 
 

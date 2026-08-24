@@ -28,7 +28,7 @@ export interface UserState {
   intent?: string;      // e.g., 'send_crypto', 'buy_airtime'
   amount?: number;      // e.g., 50 (KAS) or 2000 (NGN)
   recipient?: string;   // Kaspa address or phone number
-  network?: string;     // MTN, Airtel, etc.
+  provider?: string;     // MTN, Airtel, etc.
   retries?: number;     // Track invalid PIN attempts
 }
 
