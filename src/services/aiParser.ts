@@ -6,7 +6,7 @@ dotenv.config();
 
 
 const AGENTROUTER_API_KEY = process.env.AGENTROUTER_API_KEY || "";
-const AGENTROUTER_BASE_URL = "https://agentrouter.org/api/v1"; // adjust to their exact v1 endpoint if needed
+const AGENTROUTER_BASE_URL = "https://agentrouter.org/v1"; // adjust to their exact v1 endpoint if needed
 
 
 const openai = new OpenAI({
