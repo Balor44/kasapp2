@@ -1,7 +1,10 @@
 import axios from 'axios';
+import dotenv from 'dotenv';
 
 
-// Fallback to capture token regardless of key name used in .env
+dotenv.config();
+
+
 const WHATSAPP_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN || '';
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
 
@@ -59,6 +62,56 @@ export const WhatsAppService = {
       return false;
     }
   },
+
+
+  /**
+   * Sends a Xara-style interactive message with clickable buttons.
+   * Note: Meta limits buttons to a maximum of 3, and titles to 20 characters.
+   */
+  sendInteractiveButtons: async (to: string, text: string, buttons: { id: string; title: string }[]): Promise<boolean> => {
+    try {
+      if (!PHONE_NUMBER_ID || !WHATSAPP_TOKEN) {
+        console.error('[WHATSAPP_ERROR] Missing credentials for interactive buttons');
+        return false;
+      }
+      
+      const recipient = formatForMetaApi(to);
+
+
+      const actionButtons = buttons.map(btn => ({
+        type: 'reply',
+        reply: { id: btn.id, title: btn.title.substring(0, 20) }
+      }));
+
+
+      const response = await axios.post(
+        `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          to: recipient,
+          type: 'interactive',
+          interactive: {
+            type: 'button',
+            body: { text: text },
+            action: { buttons: actionButtons }
+          }
+        },
+        {
+          headers: { 
+            Authorization: `Bearer ${WHATSAPP_TOKEN}`, 
+            'Content-Type': 'application/json' 
+          }
+        }
+      );
+
+
+      console.log(`[WHATSAPP_SUCCESS] Sent Buttons to: ${recipient}`);
+      return true;
+    } catch (error: any) {
+      console.error('[WHATSAPP_FAILED] Button Send Error:', error.response?.data || error.message);
+      return false;
+    }
+  }
 };
 
 
