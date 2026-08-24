@@ -7,7 +7,8 @@ import { parseWhatsAppMessage } from '../services/aiParser';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { UserModel } from '../models/User';
 import { ChatbotService } from '../services/chatbot.service';
-import { KaspaService } from '../wallet/kaspa.service'; // Kept your updated import path
+import { KaspaService } from '../wallet/kaspa.service'; 
+import { KnsService } from '../services/kns.service'; // Fixed the import path typo here
 
 
 const router = Router();
@@ -191,13 +192,30 @@ router.post(
             // STEP A: AWAITING RECIPIENT
             // ---------------------------------------------------------------
             if (userState.step === 'AWAITING_RECIPIENT') {
-              const recipient = textBody;
+              let recipient = textBody;
 
 
               // --- SURGICAL INJECTION: KNS DOMAIN INTERCEPTOR ---
               if (recipient.toLowerCase().endsWith('.kas')) {
                 await WhatsAppService.sendMessage(senderPhone, `🔍 Resolving KNS domain *${recipient}*...`);
-                // TODO: Integrate actual KNS API resolution here. For now, it passes through.
+                
+                const resolvedAddress = await KnsService.resolveDomain(recipient);
+                
+                if (!resolvedAddress) {
+                  await WhatsAppService.sendMessage(
+                    senderPhone, 
+                    `❌ Could not resolve *${recipient}*. Please ensure the domain is registered or enter a standard \`kaspa:q...\` address:`
+                  );
+                  continue; // Keeps them in AWAITING_RECIPIENT state so they can try again
+                }
+
+
+                // Domain resolved successfully! Swap the domain for the actual address
+                await WhatsAppService.sendMessage(
+                  senderPhone, 
+                  `✅ Resolved *${recipient}* to:\n\`${resolvedAddress}\``
+                );
+                recipient = resolvedAddress;
               }
 
 
@@ -263,7 +281,7 @@ router.post(
 
 
               let resultMessage = '';
-              
+             
               // --- SURGICAL INJECTION: EXECUTING DATA/ELECTRICITY COMMANDS ---
               if (userState.intent === 'SEND_KAS') {
                 resultMessage = await ChatbotService.processIncomingMessage(
@@ -342,22 +360,42 @@ router.post(
                 });
                 await WhatsAppService.sendMessage(
                   senderPhone,
-                  `Got it. You want to send *${amount} KAS*.\n\nPlease reply with the recipient's *Kaspa address* or *Phone number*:`
+                  `Got it. You want to send *${amount} KAS*.\n\nPlease reply with the recipient's *Kaspa address*, *.kas domain*, or *Phone number*:`
                 );
                 continue;
               }
 
 
-              // Both amount and recipient were provided in one prompt
+              let finalRecipient = parsed.recipient;
+
+
+              // --- KNS DOMAIN INTERCEPTOR (ONE-SHOT) ---
+              if (finalRecipient.toLowerCase().endsWith('.kas')) {
+                await WhatsAppService.sendMessage(senderPhone, `🔍 Resolving KNS domain *${finalRecipient}*...`);
+                const resolved = await KnsService.resolveDomain(finalRecipient);
+                
+                if (!resolved) {
+                  // Drop them into the manual recipient step since the one-shot failed
+                  await saveUserState(senderPhone, { step: 'AWAITING_RECIPIENT', intent: 'SEND_KAS', amount: amount });
+                  await WhatsAppService.sendMessage(senderPhone, `❌ Could not resolve *${finalRecipient}*. Please reply with a valid Kaspa address or Phone number:`);
+                  continue;
+                }
+                
+                await WhatsAppService.sendMessage(senderPhone, `✅ Resolved *${finalRecipient}* to:\n\`${resolved}\``);
+                finalRecipient = resolved; // Swap for the real address
+              }
+
+
+              // Both amount and recipient are successfully secured
               await saveUserState(senderPhone, {
                 step: 'AWAITING_PIN',
                 intent: 'SEND_KAS',
                 amount: amount,
-                recipient: parsed.recipient,
+                recipient: finalRecipient,
               });
               await WhatsAppService.sendMessage(
                 senderPhone,
-                `Sending *${amount} KAS* to \`${parsed.recipient}\`.\n\nPlease reply with your *Transaction PIN* to confirm:`
+                `Sending *${amount} KAS* to \`${finalRecipient}\`.\n\nPlease reply with your *Transaction PIN* to confirm:`
               );
               continue;
             }
@@ -390,7 +428,7 @@ router.post(
               );
               continue;
             }
-            
+           
             // --- SURGICAL INJECTION: DATA AND ELECTRICITY INTENTS ---
             if (parsed.intent === 'BUY_DATA') {
               const amount = parsed.amount;
@@ -408,7 +446,7 @@ router.post(
             if (parsed.intent === 'PAY_ELECTRICITY') {
               const amount = parsed.amount;
               const provider = (parsed.provider || 'UNKNOWN').toUpperCase();
-              
+             
               if (!amount || !parsed.meterNumber) {
                 await WhatsAppService.sendMessage(senderPhone, `⚠️ Please specify amount, provider, and meter number.\nExample: *Pay 5000 for IKEDC meter 123456789*`);
                 continue;
