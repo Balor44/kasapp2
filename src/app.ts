@@ -5,7 +5,7 @@ import { Agent, setGlobalDispatcher } from 'undici';
 setGlobalDispatcher(
   new Agent({
     connect: {
-      timeout: 30000, 
+      timeout: 30000,
     },
     headersTimeout: 60000,
     bodyTimeout: 60000,
@@ -34,7 +34,7 @@ import redeemRoutes from './routes/redeem.routes';
 import messageRoutes from './routes/message.routes';
 import adminRoutes from './routes/admin.routes';
 import billpayRoutes from './routes/billpay.routes';
-import whatsappRoutes from './routes/whatsapp.routes'; 
+import whatsappRoutes from './routes/whatsapp.routes';
 import paymentRoutes from './routes/payment.routes';
 import merchantRoutes from './routes/merchant.routes';
 import { redeemMerchantVoucher } from './controllers/merchant.controller';
@@ -42,6 +42,16 @@ import { redeemMerchantVoucher } from './controllers/merchant.controller';
 
 const app = express();
 app.use(cors());
+
+
+// ==========================================================================
+// CRITICAL: Mount WhatsApp routes BEFORE express.json()
+// This ensures the Meta webhook can receive the raw Buffer for signature verification.
+// ==========================================================================
+app.use('/api/whatsapp', whatsappRoutes);
+
+
+// Global JSON parser for all other routes
 app.use(express.json());
 
 
@@ -53,10 +63,11 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/redeem', redeemRoutes);
 app.use('/api', messageRoutes);
 app.use('/api', waitlistRoutes);
-app.use('/api', whatsappRoutes); 
 app.use('/api', paymentRoutes);
 
+
 app.post(`/api/v1/merchant/redeem`, redeemMerchantVoucher);
+
 
 app.get('/health', (_req: any, res: any) => {
   res.json({ status: 'OK', product: 'Kasapp' });

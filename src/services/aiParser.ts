@@ -1,21 +1,22 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from 'dotenv';
+import OpenAI from 'openai'; // Standard OpenAI SDK works with any OpenAI-compatible gateway
 
 
 dotenv.config();
 
 
-const apiKey = process.env.GEMINI_API_KEY || "";
+const AGENTROUTER_API_KEY = process.env.AGENTROUTER_API_KEY || "";
+const AGENTROUTER_BASE_URL = "https://agentrouter.org/v1"; // Or your specific gateway endpoint
 
 
-const ai = new GoogleGenAI({ 
-  apiKey,
-  httpOptions: { timeout: 30000 } 
+const openai = new OpenAI({
+  apiKey: AGENTROUTER_API_KEY,
+  baseURL: AGENTROUTER_BASE_URL,
 });
 
 
 export interface IntentResponse {
-  intent: 
+  intent:
     | "BALANCE"
     | "SEND_KAS"
     | "BUY_AIRTIME"
@@ -34,60 +35,36 @@ export interface IntentResponse {
 
 
 export async function parseWhatsAppMessage(userMessage: string): Promise<IntentResponse> {
-  if (!apiKey) {
-    console.error("[Kasapp AI Parser] GEMINI_API_KEY is missing from environment variables.");
+  if (!AGENTROUTER_API_KEY) {
+    console.error("[Kasapp AI Parser] AGENTROUTER_API_KEY is missing from environment variables.");
     return { intent: "UNKNOWN", confidence: 0 };
   }
 
 
-  // Active models (latest stable first)
-  const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash"];
-
-
-  for (const model of modelsToTry) {
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: `Extract intent and parameters from this WhatsApp message for a payment bot: "${userMessage}"`,
-        config: {
-          systemInstruction: `You are the natural language parser for Kasapp. Map user messages to defined intents.`,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              intent: {
-                type: Type.STRING,
-                enum: [
-                  "BALANCE",
-                  "SEND_KAS",
-                  "BUY_AIRTIME",
-                  "BUY_DATA",
-                  "PAY_ELECTRICITY",
-                  "REDEEM_VOUCHER",
-                  "HELP",
-                  "UNKNOWN"
-                ],
-              },
-              amount: { type: Type.NUMBER },
-              recipient: { type: Type.STRING },
-              provider: { type: Type.STRING },
-              voucherCode: { type: Type.STRING },
-              confidence: { type: Type.NUMBER },
-              conversationalReply: { type: Type.STRING }
-            },
-            required: ["intent", "confidence"],
-          },
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini", // Or whatever model name AgentRouter provides/recommends
+      messages: [
+        {
+          role: "system",
+          content: "You are the natural language parser for Kasapp. Map user messages to defined intents and return strict JSON matching the requested structure."
         },
-      });
+        {
+          role: "user",
+          content: `Extract intent and parameters from this WhatsApp message for a payment bot: "${userMessage}"`
+        }
+      ],
+      response_format: { type: "json_object" },
+    });
 
 
-      if (response.text) {
-        console.log(`[Kasapp AI Parser] Success using model (${model}):`, response.text);
-        return JSON.parse(response.text) as IntentResponse;
-      }
-    } catch (error: any) {
-      console.error(`[Kasapp AI Parser] Model ${model} failed:`, error?.message || error);
+    const content = completion.choices[0]?.message?.content;
+    if (content) {
+      console.log(`[Kasapp AI Parser] Success using AgentRouter:`, content);
+      return JSON.parse(content) as IntentResponse;
     }
+  } catch (error: any) {
+    console.error(`[Kasapp AI Parser] AgentRouter request failed:`, error?.message || error);
   }
 
 
