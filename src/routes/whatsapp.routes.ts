@@ -330,6 +330,17 @@ router.post(
               continue;
             }
 
+            
+            // HANDLE BALANCE INTENT
+            if (parsed.intent === 'BALANCE') {
+              // Optional: Send a quick loading message if fetching balance takes a second
+              await WhatsAppService.sendMessage(senderPhone, '🔄 Checking your wallet balance on-chain...');
+              
+              const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, '/balance');
+              await WhatsAppService.sendMessage(senderPhone, resultMessage);
+              continue;
+            }
+
 
             // Small talk / Help fallback with action buttons
             const reply = parsed.conversationalReply || 'Welcome to Kasapp! How can I help you today?';

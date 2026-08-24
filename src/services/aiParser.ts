@@ -60,6 +60,7 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
 
           ALLOWED INTENTS:
+          - "BALANCE": User wants to check their wallet balance or see how much KAS/money they have. No extra parameters needed.
           - "SEND_KAS": User wants to send/transfer Kaspa (KAS). Extract "amount" (number) and "recipient" (string: Kaspa address or phone number if provided).
           - "BUY_AIRTIME": User wants to buy/recharge airtime. Extract "amount" (number) and "provider" (string: MTN, GLO, AIRTEL, 9MOBILE).
           - "SET_PIN": User wants to create or update their security PIN. Extract "pin" (string of 4-6 digits if provided).
@@ -74,7 +75,7 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
           Return strict JSON:
           {
-            "intent": "SEND_KAS" | "BUY_AIRTIME" | "SET_PIN" | "HELP" | "UNKNOWN",
+            "intent": "BALANCE" | "SEND_KAS" | "BUY_AIRTIME" | "SET_PIN" | "HELP" | "UNKNOWN",
             "amount": number | null,
             "recipient": string | null,
             "provider": string | null,
