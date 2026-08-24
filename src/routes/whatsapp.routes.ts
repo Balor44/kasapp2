@@ -181,7 +181,13 @@ router.post(
             // STEP C: AWAITING PIN (For Transactions)
             // ---------------------------------------------------------------
             if (userState.step === 'AWAITING_PIN') {
-              const user = await UserModel.findOne({ phone: senderPhone });
+              // 1. Bulletproof Database Lookup (Handles +, no +, and different field names)
+              let user = await UserModel.findOne({ phone: senderPhone }) 
+                      || await UserModel.findOne({ phone: `+${senderPhone}` })
+                      || await UserModel.findOne({ phoneNumber: senderPhone })
+                      || await UserModel.findOne({ phoneNumber: `+${senderPhone}` });
+
+
               if (!user || !user.pin) {
                 await clearUserState(senderPhone);
                 await WhatsAppService.sendMessage(
@@ -192,6 +198,7 @@ router.post(
               }
 
 
+              // 2. Verify the hashed PIN
               const isMatch = await bcrypt.compare(textBody, user.pin);
               if (!isMatch) {
                 await clearUserState(senderPhone);
@@ -203,6 +210,7 @@ router.post(
               }
 
 
+              // 3. Execute Transaction
               await WhatsAppService.sendMessage(senderPhone, '🔄 Processing your transaction on-chain...');
 
 
@@ -224,7 +232,6 @@ router.post(
               await WhatsAppService.sendMessage(senderPhone, resultMessage);
               continue;
             }
-
 
             // ---------------------------------------------------------------
             // STEP D: IDLE STATE -> AI INTENT PARSER
