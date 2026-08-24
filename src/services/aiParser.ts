@@ -6,7 +6,7 @@ dotenv.config();
 
 
 const AGENTROUTER_API_KEY = process.env.AGENTROUTER_API_KEY || "";
-const AGENTROUTER_BASE_URL = "https://agentrouter.org/v1"; 
+const AGENTROUTER_BASE_URL = "https://agentrouter.org/v1";
 
 
 const openai = new OpenAI({
@@ -29,7 +29,7 @@ export interface IntentResponse {
     | "BUY_DATA"
     | "PAY_ELECTRICITY"
     | "REDEEM_VOUCHER"
-    | "SET_PIN" 
+    | "SET_PIN"
     | "HELP"
     | "UNKNOWN";
   amount?: number | null;
@@ -37,6 +37,7 @@ export interface IntentResponse {
   provider?: string | null;
   voucherCode?: string | null;
   pin?: string | null;
+  meterNumber?: string | null; // <-- FIX: Added this so TypeScript stops throwing errors!
   confidence: number;
   conversationalReply?: string | null;
 }
@@ -51,7 +52,7 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-5.6-sol", 
+      model: "gpt-5.6-sol",
       messages: [
         {
           role: "system",
@@ -61,8 +62,10 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
           ALLOWED INTENTS:
           - "BALANCE": User wants to check their wallet balance or see how much KAS/money they have. No extra parameters needed.
-          - "SEND_KAS": User wants to send/transfer Kaspa (KAS). Extract "amount" (number) and "recipient" (string: Kaspa address or phone number if provided).
+          - "SEND_KAS": User wants to send/transfer Kaspa (KAS). Extract "amount" (number) and "recipient" (string: Kaspa address, .kas domain, or phone number if provided).
           - "BUY_AIRTIME": User wants to buy/recharge airtime. Extract "amount" (number) and "provider" (string: MTN, GLO, AIRTEL, 9MOBILE).
+          - "BUY_DATA": User wants to buy internet data. Extract "amount" (number) and "provider" (string: MTN, GLO, AIRTEL, 9MOBILE).
+          - "PAY_ELECTRICITY": User wants to pay power/electricity bill. Extract "amount", "provider" (e.g., IKEDC, EKEDC, AEDC), and "meterNumber" (string).
           - "SET_PIN": User wants to create or update their security PIN. Extract "pin" (string of 4-6 digits if provided).
           - "HELP": User greets, makes small talk, asks what you can do, or asks for help.
           - "UNKNOWN": Message is completely unrelated to financial actions or wallet assistance.
@@ -75,10 +78,11 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
           Return strict JSON:
           {
-            "intent": "BALANCE" | "SEND_KAS" | "BUY_AIRTIME" | "SET_PIN" | "HELP" | "UNKNOWN",
+            "intent": "BALANCE" | "SEND_KAS" | "BUY_AIRTIME" | "BUY_DATA" | "PAY_ELECTRICITY" | "SET_PIN" | "HELP" | "UNKNOWN",
             "amount": number | null,
             "recipient": string | null,
             "provider": string | null,
+            "meterNumber": string | null,
             "confidence": number,
             "conversationalReply": string | null,
             "pin": string | null

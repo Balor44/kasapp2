@@ -7,6 +7,7 @@ import { parseWhatsAppMessage } from '../services/aiParser';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { UserModel } from '../models/User';
 import { ChatbotService } from '../services/chatbot.service';
+import { KaspaService } from '../wallet/kaspa.service'; // Kept your updated import path
 
 
 const router = Router();
@@ -126,6 +127,52 @@ router.post(
             console.log(`[Received Text] ${senderPhone}: "${textBody}"`);
 
 
+            // ===============================================================
+            // MASTER DB LOOKUP & NEW USER ONBOARDING
+            // ===============================================================
+            let user = await UserModel.findOne({ phone: senderPhone })
+                    || await UserModel.findOne({ phone: `+${senderPhone}` })
+                    || await UserModel.findOne({ phoneNumber: senderPhone })
+                    || await UserModel.findOne({ phoneNumber: `+${senderPhone}` });
+
+
+            if (!user) {
+              console.log(`[Onboarding] Brand new user detected: ${senderPhone}`);
+              await WhatsAppService.sendMessage(senderPhone, '🔄 Generating your secure Kaspa wallet on-chain... Please wait.');
+
+
+              try {
+                // 1. Generate encrypted Kaspa Wallet
+                const newWallet = await KaspaService.createEncryptedWallet();
+
+
+                // 2. Save new user to MongoDB (Kept your exact schema mapping)
+                user = new UserModel({
+                  phone: senderPhone,
+                  walletAddress: newWallet.address,
+                  mnemonic: newWallet.encryptedSeed,
+                  pin: null
+                });
+                await user.save();
+
+
+                // 3. Drop them straight into PIN setup
+                await saveUserState(senderPhone, { step: 'AWAITING_NEW_PIN' });
+
+
+                await WhatsAppService.sendMessage(
+                  senderPhone,
+                  `🎉 *Welcome to Kasapp!*\n\nI just generated a brand new, secure Kaspa wallet connected directly to this phone number.\n\n📍 *Your Address:* \`${newWallet.address}\`\n\nTo lock and secure your funds, please reply with a *new 4 to 6 digit PIN*:`
+                );
+                continue; // Stop execution here so they provide their PIN on the next message
+              } catch (error) {
+                console.error('[Onboarding Error]:', error);
+                await WhatsAppService.sendMessage(senderPhone, '❌ Failed to generate your wallet. Please try again later.');
+                continue;
+              }
+            }
+
+
             // Check active Redis session state
             const userState = (await getUserState(senderPhone)) || {};
 
@@ -145,6 +192,13 @@ router.post(
             // ---------------------------------------------------------------
             if (userState.step === 'AWAITING_RECIPIENT') {
               const recipient = textBody;
+
+
+              // --- SURGICAL INJECTION: KNS DOMAIN INTERCEPTOR ---
+              if (recipient.toLowerCase().endsWith('.kas')) {
+                await WhatsAppService.sendMessage(senderPhone, `🔍 Resolving KNS domain *${recipient}*...`);
+                // TODO: Integrate actual KNS API resolution here. For now, it passes through.
+              }
 
 
               await saveUserState(senderPhone, {
@@ -167,10 +221,10 @@ router.post(
             // ---------------------------------------------------------------
             if (userState.step === 'AWAITING_NEW_PIN') {
               const newPin = textBody;
-              
+             
               // Pass silently to backend
               const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, `/setpin ${newPin}`);
-              
+             
               await clearUserState(senderPhone);
               await WhatsAppService.sendMessage(senderPhone, resultMessage);
               continue;
@@ -181,14 +235,8 @@ router.post(
             // STEP C: AWAITING PIN (For Transactions)
             // ---------------------------------------------------------------
             if (userState.step === 'AWAITING_PIN') {
-              // 1. Bulletproof Database Lookup (Handles +, no +, and different field names)
-              let user = await UserModel.findOne({ phone: senderPhone }) 
-                      || await UserModel.findOne({ phone: `+${senderPhone}` })
-                      || await UserModel.findOne({ phoneNumber: senderPhone })
-                      || await UserModel.findOne({ phoneNumber: `+${senderPhone}` });
-
-
-              if (!user || !user.pin) {
+              // We reuse the `user` variable we fetched at the very top of the script!
+              if (!user.pin) {
                 await clearUserState(senderPhone);
                 await WhatsAppService.sendMessage(
                   senderPhone,
@@ -198,7 +246,7 @@ router.post(
               }
 
 
-              // 2. Verify the hashed PIN
+              // Verify the hashed PIN
               const isMatch = await bcrypt.compare(textBody, user.pin);
               if (!isMatch) {
                 await clearUserState(senderPhone);
@@ -210,11 +258,13 @@ router.post(
               }
 
 
-              // 3. Execute Transaction
-              await WhatsAppService.sendMessage(senderPhone, '🔄 Processing your transaction on-chain...');
+              // Execute Transaction
+              await WhatsAppService.sendMessage(senderPhone, '🔄 Processing your transaction...');
 
 
               let resultMessage = '';
+              
+              // --- SURGICAL INJECTION: EXECUTING DATA/ELECTRICITY COMMANDS ---
               if (userState.intent === 'SEND_KAS') {
                 resultMessage = await ChatbotService.processIncomingMessage(
                   senderPhone,
@@ -225,6 +275,16 @@ router.post(
                   senderPhone,
                   `/airtime ${userState.provider} ${senderPhone} ${userState.amount}`
                 );
+              } else if (userState.intent === 'BUY_DATA') {
+                resultMessage = await ChatbotService.processIncomingMessage(
+                  senderPhone,
+                  `/data ${userState.provider} ${senderPhone} ${userState.amount}`
+                );
+              } else if (userState.intent === 'PAY_ELECTRICITY') {
+                resultMessage = await ChatbotService.processIncomingMessage(
+                  senderPhone,
+                  `/electricity ${userState.provider} ${userState.meterNumber} ${userState.amount}`
+                );
               }
 
 
@@ -232,6 +292,7 @@ router.post(
               await WhatsAppService.sendMessage(senderPhone, resultMessage);
               continue;
             }
+
 
             // ---------------------------------------------------------------
             // STEP D: IDLE STATE -> AI INTENT PARSER
@@ -248,7 +309,7 @@ router.post(
                 await WhatsAppService.sendMessage(senderPhone, resultMessage);
                 continue;
               }
-              
+             
               // Multi-step: User just said "I want to set a pin"
               await saveUserState(senderPhone, { step: 'AWAITING_NEW_PIN' });
               await WhatsAppService.sendMessage(
@@ -329,13 +390,38 @@ router.post(
               );
               continue;
             }
-
             
+            // --- SURGICAL INJECTION: DATA AND ELECTRICITY INTENTS ---
+            if (parsed.intent === 'BUY_DATA') {
+              const amount = parsed.amount;
+              const provider = (parsed.provider || 'UNKNOWN').toUpperCase();
+              if (!amount || isNaN(amount) || amount <= 0) {
+                await WhatsAppService.sendMessage(senderPhone, `⚠️ Please specify a valid amount.\nExample: *Buy 1000 MTN data*`);
+                continue;
+              }
+              await saveUserState(senderPhone, { step: 'AWAITING_PIN', intent: 'BUY_DATA', amount: amount, provider: provider });
+              await WhatsAppService.sendMessage(senderPhone, `Purchase *₦${amount} ${provider} data* for this line.\n\nPlease reply with your *Transaction PIN* to confirm:`);
+              continue;
+            }
+
+
+            if (parsed.intent === 'PAY_ELECTRICITY') {
+              const amount = parsed.amount;
+              const provider = (parsed.provider || 'UNKNOWN').toUpperCase();
+              
+              if (!amount || !parsed.meterNumber) {
+                await WhatsAppService.sendMessage(senderPhone, `⚠️ Please specify amount, provider, and meter number.\nExample: *Pay 5000 for IKEDC meter 123456789*`);
+                continue;
+              }
+              await saveUserState(senderPhone, { step: 'AWAITING_PIN', intent: 'PAY_ELECTRICITY', amount: amount, provider: provider, meterNumber: parsed.meterNumber });
+              await WhatsAppService.sendMessage(senderPhone, `Pay *₦${amount}* for ${provider} meter \`${parsed.meterNumber}\`.\n\nPlease reply with your *Transaction PIN* to confirm:`);
+              continue;
+            }
+           
             // HANDLE BALANCE INTENT
             if (parsed.intent === 'BALANCE') {
-              // Optional: Send a quick loading message if fetching balance takes a second
               await WhatsAppService.sendMessage(senderPhone, '🔄 Checking your wallet balance on-chain...');
-              
+             
               const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, '/balance');
               await WhatsAppService.sendMessage(senderPhone, resultMessage);
               continue;

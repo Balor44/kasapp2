@@ -30,6 +30,7 @@ export interface UserState {
   recipient?: string;   // Kaspa address or phone number
   provider?: string;     // MTN, Airtel, etc.
   retries?: number;     // Track invalid PIN attempts
+  meterNumber?: string;  // For electricity payments
 }
 
 
