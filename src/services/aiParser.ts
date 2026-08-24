@@ -43,7 +43,7 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Or equivalent AgentRouter model
+      model: "gpt-5.6-sol", // Or equivalent AgentRouter model
       messages: [
         {
           role: "system",
