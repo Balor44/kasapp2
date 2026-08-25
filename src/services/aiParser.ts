@@ -52,7 +52,7 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-5.6-sol",
+      model: "gpt-5.6-sol", // Try deepseek-v4f or opus 4.8 if this fails
       messages: [
         {
           role: "system",
@@ -61,22 +61,22 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
 
           ALLOWED INTENTS:
-          - "BALANCE": User wants to check their wallet balance or see how much KAS/money they have. No extra parameters needed.
-          - "SEND_KAS": User wants to send/transfer Kaspa (KAS). Extract "amount" (number) and "recipient" (string: Kaspa address, .kas domain, or phone number if provided).
-          - "BUY_AIRTIME": User wants to buy/recharge airtime. Extract "amount" (number) and "provider" (string: MTN, GLO, AIRTEL, 9MOBILE).
-          - "BUY_DATA": User wants to buy internet data. Extract "amount" (number) and "provider" (string: MTN, GLO, AIRTEL, 9MOBILE).
-          - "PAY_ELECTRICITY": User wants to pay power/electricity bill. Extract "amount", "provider" (e.g., IKEDC, EKEDC, AEDC), and "meterNumber" (string).
-          - "SET_PIN": User wants to create or update their security PIN. Extract "pin" (string of 4-6 digits if provided).
-          - "HELP": User greets, makes small talk, asks what you can do, or asks for help.
-          - "UNKNOWN": Message is completely unrelated to financial actions or wallet assistance.
+          - "BALANCE": User wants to check their wallet balance.
+          - "SEND_KAS": User wants to send/transfer Kaspa. Extract "amount" (number) and "recipient".
+          - "BUY_AIRTIME": User wants to buy airtime. Extract "amount" (number) and "provider".
+          - "BUY_DATA": User wants to buy internet data. Extract "amount" (number) and "provider".
+          - "PAY_ELECTRICITY": User wants to pay electricity bill. Extract "amount", "provider", and "meterNumber".
+          - "SET_PIN": User wants to create or update their security PIN. Extract "pin" (string of 4-6 digits).
+          - "HELP": User greets, makes small talk, or asks for help.
+          - "UNKNOWN": Message is completely unrelated.
 
 
-           DYNAMIC CONVERSATIONAL RULES:
-          - For "HELP" or greetings, generate a fresh, varied response in natural Nigerian-English/Pidgin matching the user's energy and time of day. Never repeat identical canned greetings.
+          DYNAMIC CONVERSATIONAL RULES:
+          - For "HELP" or greetings, generate a fresh, varied response in natural Nigerian-English/Pidgin matching the user's energy.
           - Keep conversational replies under 2 sentences.
 
 
-          Return strict JSON:
+          YOU MUST RESPOND ONLY IN VALID JSON FORMAT. NO MARKDOWN, NO EXTRA TEXT.
           {
             "intent": "BALANCE" | "SEND_KAS" | "BUY_AIRTIME" | "BUY_DATA" | "PAY_ELECTRICITY" | "SET_PIN" | "HELP" | "UNKNOWN",
             "amount": number | null,
@@ -86,35 +86,41 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
             "confidence": number,
             "conversationalReply": string | null,
             "pin": string | null
-           }`
+          }`
         },
         {
           role: "user",
           content: `Extract intent and parameters from this: "${userMessage}"`
         }
       ],
-      response_format: { type: "json_object" },
+      // FIX 1: Removed response_format: { type: "json_object" } to prevent AgentRouter model incompatibility crashes
+      temperature: 0.1
     });
 
 
-    const content = completion.choices[0]?.message?.content;
-    if (content) {
-      console.log(`[Kasapp AI Parser] Raw AI Output:`, content);
-     
-      // Strip markdown code blocks if the AI decided to add them
-      const cleanContent = content.replace(/```json/gi, '').replace(/```/gi, '').trim();
-     
-      const parsed = JSON.parse(cleanContent) as IntentResponse;
-     
-      // Normalize intent casing just in case the AI returns "send_kas" instead of "SEND_KAS"
-      if (parsed.intent) parsed.intent = parsed.intent.toUpperCase() as any;
-     
-      return parsed;
+    // FIX 2: Defensive chaining to handle AgentRouter WAF rejections gracefully
+    const content = completion?.choices?.[0]?.message?.content;
+    
+    if (!content) {
+      console.error(`[Kasapp AI] AgentRouter API returned an empty or invalid structure:`, JSON.stringify(completion));
+      return { intent: "UNKNOWN", confidence: 0 };
     }
+
+
+    console.log(`[Kasapp AI Parser] Raw AI Output:`, content);
+     
+    // Strip markdown code blocks in case the model ignores the "no markdown" rule
+    const cleanContent = content.replace(/```json/gi, '').replace(/```/gi, '').trim();
+    const parsed = JSON.parse(cleanContent) as IntentResponse;
+     
+    if (parsed.intent) parsed.intent = parsed.intent.toUpperCase() as any;
+     
+    return parsed;
+    
   } catch (error: any) {
-    console.error(`[Kasapp AI Parser] Error cleaning or parsing JSON:`, error?.message || error);
+    // FIX 3: Log the ACTUAL error payload from AgentRouter so we can see if it's blocking the key
+    console.error(`[Kasapp AI Parser] Fatal API Error:`, error?.response?.data || error?.message || error);
   }
 
-
-  return { intent: "UNKNOWN", confidence: 0 };
-}
+  return { intent: "UNKNOWN", confidence: 0 }
+};
