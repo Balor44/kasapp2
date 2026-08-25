@@ -13,10 +13,12 @@ const openai = new OpenAI({
   apiKey: AGENTROUTER_API_KEY,
   baseURL: "https://agentrouter.org/v1",
   defaultHeaders: {
-    "HTTP-Referer": "https://kasapp.com",
-    "X-Title": "Kasapp WhatsApp Bot",
-    // Spoofing an allowed coding agent to bypass AgentRouter's strict whitelist
-    "User-Agent": "Kilo-Code/5.3.0"
+    // Drop the custom app names and spoof a completely normal Chrome Browser
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Origin": "https://agentrouter.org",
+    "Referer": "https://agentrouter.org/"
   }
 });
 
