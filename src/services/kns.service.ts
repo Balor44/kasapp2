@@ -14,10 +14,18 @@ export const KnsService = {
       const domainName = cleanDomain.replace('.kas', '');
 
 
-      // Self-Healing: Try both URL structures because KNS API versions vary
+      // Self-Healing: Try every known KNS API variation
       const urlsToTry = [
-        `https://api.knsdomains.org/mainnet/api/v1/domain/${domainName}`, // Without .kas (e.g., "balor")
-        `https://api.knsdomains.org/mainnet/api/v1/domain/${cleanDomain}` // With .kas (e.g., "balor.kas")
+        // Standard documented endpoints
+        `https://api.knsdomains.org/mainnet/api/v1/domain/${domainName}`,
+        `https://api.knsdomains.org/mainnet/api/v1/domain/${cleanDomain}`,
+        
+        // Alternative endpoints (in case they dropped /mainnet/ from the path)
+        `https://api.knsdomains.org/api/v1/domain/${domainName}`,
+        `https://api.knsdomains.org/api/v1/domain/${cleanDomain}`,
+        
+        // Kaspa.com integrated KNS API fallback
+        `https://api.kaspa.com/api/v1/kns/domain/${cleanDomain}`
       ];
 
 
