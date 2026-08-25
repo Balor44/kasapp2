@@ -5,21 +5,13 @@ import OpenAI from 'openai';
 dotenv.config();
 
 
-const AGENTROUTER_API_KEY = process.env.AGENTROUTER_API_KEY || "";
-const AGENTROUTER_BASE_URL = "https://agentrouter.org/v1";
+const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 
 
+// Pointing the OpenAI SDK directly to Groq's blazing fast servers
 const openai = new OpenAI({
-  apiKey: AGENTROUTER_API_KEY,
-  baseURL: "https://agentrouter.org/v1",
-  defaultHeaders: {
-    // Drop the custom app names and spoof a completely normal Chrome Browser
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "application/json",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Origin": "https://agentrouter.org",
-    "Referer": "https://agentrouter.org/"
-  }
+  apiKey: GROQ_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1"
 });
 
 
@@ -39,22 +31,22 @@ export interface IntentResponse {
   provider?: string | null;
   voucherCode?: string | null;
   pin?: string | null;
-  meterNumber?: string | null; // <-- FIX: Added this so TypeScript stops throwing errors!
+  meterNumber?: string | null;
   confidence: number;
   conversationalReply?: string | null;
 }
 
 
 export async function parseWhatsAppMessage(userMessage: string): Promise<IntentResponse> {
-  if (!AGENTROUTER_API_KEY) {
-    console.error("[Kasapp AI Parser] AGENTROUTER_API_KEY is missing.");
+  if (!GROQ_API_KEY) {
+    console.error("[Kasapp AI Parser] GROQ_API_KEY is missing.");
     return { intent: "UNKNOWN", confidence: 0 };
   }
 
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-5.6-sol", // Try deepseek-v4f or opus 4.8 if this fails
+      model: "llama-3.3-70b-versatile", // Extremely smart and fast model on Groq
       messages: [
         {
           role: "system",
@@ -64,21 +56,20 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
           ALLOWED INTENTS:
           - "BALANCE": User wants to check their wallet balance.
-          - "SEND_KAS": User wants to send/transfer Kaspa. Extract "amount" (number) and "recipient".
-          - "BUY_AIRTIME": User wants to buy airtime. Extract "amount" (number) and "provider".
+          - "SEND_KAS": User wants to send/transfer Kaspa (KAS). Extract "amount" (number) and "recipient".
+          - "BUY_AIRTIME": User wants to buy airtime. Extract "amount" (number) and "provider" (e.g., MTN, GLO).
           - "BUY_DATA": User wants to buy internet data. Extract "amount" (number) and "provider".
-          - "PAY_ELECTRICITY": User wants to pay electricity bill. Extract "amount", "provider", and "meterNumber".
+          - "PAY_ELECTRICITY": User wants to pay electricity bill. Extract "amount", "provider" (e.g., IKEDC), and "meterNumber".
           - "SET_PIN": User wants to create or update their security PIN. Extract "pin" (string of 4-6 digits).
           - "HELP": User greets, makes small talk, or asks for help.
           - "UNKNOWN": Message is completely unrelated.
 
 
-          DYNAMIC CONVERSATIONAL RULES:
-          - For "HELP" or greetings, generate a fresh, varied response in natural Nigerian-English/Pidgin matching the user's energy.
-          - Keep conversational replies under 2 sentences.
+           DYNAMIC CONVERSATIONAL RULES:
+          - For "HELP" or greetings, generate a fresh, varied response in natural Nigerian-English/Pidgin matching the user's energy. Keep it under 2 sentences.
 
 
-          YOU MUST RESPOND ONLY IN VALID JSON FORMAT. NO MARKDOWN, NO EXTRA TEXT.
+          Return strict JSON:
           {
             "intent": "BALANCE" | "SEND_KAS" | "BUY_AIRTIME" | "BUY_DATA" | "PAY_ELECTRICITY" | "SET_PIN" | "HELP" | "UNKNOWN",
             "amount": number | null,
@@ -88,30 +79,28 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
             "confidence": number,
             "conversationalReply": string | null,
             "pin": string | null
-          }`
+           }`
         },
         {
           role: "user",
           content: `Extract intent and parameters from this: "${userMessage}"`
         }
       ],
-      // FIX 1: Removed response_format: { type: "json_object" } to prevent AgentRouter model incompatibility crashes
+      response_format: { type: "json_object" }, 
       temperature: 0.1
     });
 
 
-    // FIX 2: Defensive chaining to handle AgentRouter WAF rejections gracefully
     const content = completion?.choices?.[0]?.message?.content;
     
     if (!content) {
-      console.error(`[Kasapp AI] AgentRouter API returned an empty or invalid structure:`, JSON.stringify(completion));
+      console.error(`[Kasapp AI Parser] Empty response from Groq.`);
       return { intent: "UNKNOWN", confidence: 0 };
     }
 
 
     console.log(`[Kasapp AI Parser] Raw AI Output:`, content);
      
-    // Strip markdown code blocks in case the model ignores the "no markdown" rule
     const cleanContent = content.replace(/```json/gi, '').replace(/```/gi, '').trim();
     const parsed = JSON.parse(cleanContent) as IntentResponse;
      
@@ -120,9 +109,9 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
     return parsed;
     
   } catch (error: any) {
-    // FIX 3: Log the ACTUAL error payload from AgentRouter so we can see if it's blocking the key
     console.error(`[Kasapp AI Parser] Fatal API Error:`, error?.response?.data || error?.message || error);
   }
 
-  return { intent: "UNKNOWN", confidence: 0 }
-};
+
+  return { intent: "UNKNOWN", confidence: 0 };
+}
