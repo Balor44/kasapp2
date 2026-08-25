@@ -46,7 +46,7 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "llama3-70b-8192", // Extremely smart and fast model on Groq
+      model: "openai/gpt-oss-20b", // Extremely smart and fast model on Groq
       messages: [
         {
           role: "system",
