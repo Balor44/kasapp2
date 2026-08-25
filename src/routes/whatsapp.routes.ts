@@ -370,19 +370,23 @@ router.post(
 
 
               // --- KNS DOMAIN INTERCEPTOR (ONE-SHOT) ---
-              if (finalRecipient.toLowerCase().endsWith('.kas')) {
-                await WhatsAppService.sendMessage(senderPhone, `🔍 Resolving KNS domain *${finalRecipient}*...`);
+              if (finalRecipient.toLowerCase().includes('.kas')) {
+                // Force regex extraction in case the AI included extra words
+                const match = finalRecipient.match(/([a-zA-Z0-9_-]+)\.kas/i);
+                const domainString = match ? match[0] : finalRecipient;
+
+
+                await WhatsAppService.sendMessage(senderPhone, `🔍 Resolving KNS domain *${domainString}*...`);
                 const resolved = await KnsService.resolveDomain(finalRecipient);
                 
                 if (!resolved) {
-                  // Drop them into the manual recipient step since the one-shot failed
                   await saveUserState(senderPhone, { step: 'AWAITING_RECIPIENT', intent: 'SEND_KAS', amount: amount });
-                  await WhatsAppService.sendMessage(senderPhone, `❌ Could not resolve *${finalRecipient}*. Please reply with a valid Kaspa address or Phone number:`);
+                  await WhatsAppService.sendMessage(senderPhone, `❌ Could not resolve *${domainString}*. Please reply with a valid Kaspa address or Phone number:`);
                   continue;
                 }
                 
-                await WhatsAppService.sendMessage(senderPhone, `✅ Resolved *${finalRecipient}* to:\n\`${resolved}\``);
-                finalRecipient = resolved; // Swap for the real address
+                await WhatsAppService.sendMessage(senderPhone, `✅ Resolved *${domainString}* to:\n\`${resolved}\``);
+                finalRecipient = resolved; 
               }
 
 

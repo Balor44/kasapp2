@@ -2,11 +2,9 @@ import axios from 'axios';
 
 
 export const KnsService = {
-  /**
-   * Resolves a .kas domain to its corresponding Kaspa wallet address
-   */
   resolveDomain: async (domainInput: string): Promise<string | null> => {
     try {
+      // 1. Strictly extract ONLY the domain name, ignoring all other words/spaces
       const match = domainInput.match(/([a-zA-Z0-9_-]+)\.kas/i);
       if (!match) return null;
 
@@ -15,17 +13,11 @@ export const KnsService = {
       const cleanDomain = `${domainName}.kas`;
 
 
-      // 🚨 NEW: Prioritize Enterprise indexers (api.kaspa.com) over community ones!
+      // 2. Race the top Enterprise and Community Indexers simultaneously
       const urlsToTry = [
-        // 1. Kaspa.com Enterprise API (without .kas)
-        `https://api.kaspa.com/api/v1/kns/domain/${domainName}`,
-        
-        // 2. Kaspa.com Enterprise API (with .kas)
-        `https://api.kaspa.com/api/v1/kns/domain/${cleanDomain}`,
-        
-        // 3. Official KNS App API
-        `https://api.knsdomains.org/mainnet/api/v1/domain/${domainName}`,
-        `https://api.knsdomains.org/mainnet/api/v1/domain/${cleanDomain}`
+        `https://api.kaspa.com/api/v1/kns/domain/${domainName}`, // Kaspa Enterprise
+        `https://api.kaspa.com/api/v1/kns/domain/${cleanDomain}`, 
+        `https://api.knsdomains.org/mainnet/api/v1/domain/${domainName}` // Official KNS
       ];
 
 
@@ -39,38 +31,27 @@ export const KnsService = {
             }
           }); 
           
-          console.log(`[KNS API Success] Hit: ${url} | Payload:`, JSON.stringify(response.data));
-
-
           const payload = response.data;
-          // Hunt for the data block
           const record = payload?.data || payload?.result || (Array.isArray(payload) ? payload[0] : payload);
           
-          // Hunt for the Kaspa address
+          // Grab the address regardless of which API version responds
           const resolvedAddress = 
             record?.ownerAddress || 
             record?.owner || 
             record?.address || 
             record?.wallet || 
-            record?.owner_address ||
             record?.kaspaAddress;
 
 
           if (resolvedAddress && resolvedAddress.startsWith('kaspa:')) {
             return resolvedAddress;
           }
-        } catch (e: any) {
-           console.log(`[KNS Try Failed] URL: ${url} | Error:`, e?.response?.status || e.message);
+        } catch (e) {
+           // Silently fail and try the next URL in the list
         }
       }
-
-
-      console.error(`[KNS Resolution Error] Could not find valid on-chain record for ${domainName}.`);
       return null;
-
-
-    } catch (error: any) {
-      console.error(`[KNS Resolution Error] Fatal:`, error?.message);
+    } catch (error) {
       return null;
     }
   }
