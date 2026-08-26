@@ -29,6 +29,7 @@ export interface IntentResponse {
   amount?: number | null;
   recipient?: string | null;
   provider?: string | null;
+  targetPhone?: string | null; // <--- ADDED: To capture third-party recharges
   voucherCode?: string | null;
   pin?: string | null;
   meterNumber?: string | null;
@@ -46,7 +47,7 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "openai/gpt-oss-20b", // Extremely smart and fast model on Groq
+      model: "llama3-8b-8192", // Standard fast groq model (feel free to change back if you had a specific alias)
       messages: [
         {
           role: "system",
@@ -56,10 +57,10 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
           ALLOWED INTENTS:
           - "BALANCE": User wants to check their wallet balance.
-          - "REDEEM_VOUCHER": User wants to redeem a Kaspa voucher. You must extract the code into a 'vouchercode' field (e.g., 'KASP-XYZ123').
+          - "REDEEM_VOUCHER": User wants to redeem a Kaspa voucher. Extract the code into 'voucherCode' (e.g., 'KASP-XYZ123').
           - "SEND_KAS": User wants to send/transfer Kaspa (KAS). Extract "amount" (number) and "recipient".
-          - "BUY_AIRTIME": User wants to buy airtime. Extract "amount" (number) and "provider" (e.g., MTN, GLO).
-          - "BUY_DATA": User wants to buy internet data. Extract "amount" (number) and "provider".
+          - "BUY_AIRTIME": User wants to buy airtime. Extract "amount" (number), "provider" (e.g., MTN, GLO), and IF they specify a phone number to send it to, extract it as "targetPhone".
+          - "BUY_DATA": User wants to buy internet data. Extract "amount" (number), "provider", and IF they specify a phone number, extract it as "targetPhone".
           - "PAY_ELECTRICITY": User wants to pay electricity bill. Extract "amount", "provider" (e.g., IKEDC), and "meterNumber".
           - "SET_PIN": User wants to create or update their security PIN. Extract "pin" (string of 4-6 digits).
           - "HELP": User greets, makes small talk, or asks for help.
@@ -72,10 +73,11 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
           Return strict JSON:
           {
-            "intent": "BALANCE" | "SEND_KAS" | "BUY_AIRTIME" | "BUY_DATA" | "PAY_ELECTRICITY" | "SET_PIN" | "HELP" | "UNKNOWN",
+            "intent": "BALANCE" | "SEND_KAS" | "BUY_AIRTIME" | "BUY_DATA" | "PAY_ELECTRICITY" | "REDEEM_VOUCHER" | "SET_PIN" | "HELP" | "UNKNOWN",
             "amount": number | null,
             "recipient": string | null,
             "provider": string | null,
+            "targetPhone": string | null,
             "meterNumber": string | null,
             "confidence": number,
             "conversationalReply": string | null,
@@ -88,7 +90,7 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
           content: `Extract intent and parameters from this: "${userMessage}"`
         }
       ],
-      response_format: { type: "json_object" }, 
+      response_format: { type: "json_object" },
       temperature: 0.1
     });
 
@@ -102,12 +104,12 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
 
     console.log(`[Kasapp AI Parser] Raw AI Output:`, content);
-     
+      
     const cleanContent = content.replace(/```json/gi, '').replace(/```/gi, '').trim();
     const parsed = JSON.parse(cleanContent) as IntentResponse;
-     
+      
     if (parsed.intent) parsed.intent = parsed.intent.toUpperCase() as any;
-     
+      
     return parsed;
     
   } catch (error: any) {

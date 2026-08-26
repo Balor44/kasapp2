@@ -10,7 +10,7 @@ import { ChatbotService } from '../services/chatbot.service';
 import { KaspaService } from '../wallet/kaspa.service';
 import { KnsService } from '../services/kns.service';
 import { ReceiptService } from '../services/receipt.service';
-import { VtpassService } from '../services/vtpass.service'; 
+import { VtpassService } from '../services/vtpass.service';
 import { PriceService } from '../services/price.service'; // Added Real-Time Oracle Import
 
 
@@ -356,41 +356,35 @@ router.post(
                 const amountNgn = Number(userState.amount);
                 const provider = userState.provider || 'MTN';
                 
-                // Format WhatsApp phone number (234...) to Nigerian local format (0...) for VTpass
-                let localPhone = senderPhone;
-                if (localPhone.startsWith('234')) {
-                  localPhone = '0' + localPhone.substring(3);
-                } else if (localPhone.startsWith('+234')) {
-                  localPhone = '0' + localPhone.substring(4);
+                // 1. Format the phone number (Convert WhatsApp 234 to Nigerian 0)
+                let formattedPhone = userState.targetPhone || senderPhone;
+                if (formattedPhone.startsWith('234')) {
+                  formattedPhone = '0' + formattedPhone.substring(3);
+                } else if (formattedPhone.startsWith('+234')) {
+                  formattedPhone = '0' + formattedPhone.substring(4);
                 }
 
-                const target = userState.intent === 'PAY_ELECTRICITY' ? userState.meterNumber : localPhone;
 
-                // 1. Fetch Real-Time Kaspa Price!
+                const target = userState.intent === 'PAY_ELECTRICITY' ? userState.meterNumber : formattedPhone;
+
+
+                // 2. Fetch Real-Time Kaspa Price
                 await WhatsAppService.sendMessage(senderPhone, '🔄 Fetching real-time Kaspa exchange rates...');
                 const liveKasExchangeRate = await PriceService.getKaspaToNairaRate(); 
                 
-                // Add a small spread (e.g., 2%) to cover VTpass fees and network volatility
                 const spreadRate = liveKasExchangeRate * 0.98; 
                 const kasCost = +(amountNgn / spreadRate).toFixed(4);
 
 
-                // 2. Transfer KAS to Kasapp Operator Wallet (Native Execution)
-                const rawAddress = process.env.OPERATOR_WALLET_ADDRESS || '';
-                const operatorAddress = rawAddress.replace(/["']/g, '').trim(); 
-                
-                // Prevent invalid operator addresses from crashing the transaction
-                if (!operatorAddress || !operatorAddress.startsWith('kaspa:')) {
-                  await clearUserState(senderPhone);
-                  await WhatsAppService.sendMessage(senderPhone, `❌ System error: Operator wallet not properly configured in Railway variables.`);
-                  continue;
-                }
-
-
+                // 3. Fake the Kaspa Transfer for Sandbox Testing (Saves your real KAS)
                 await WhatsAppService.sendMessage(senderPhone, `📉 Live Rate: 1 KAS = ₦${spreadRate.toFixed(2)}\n🔄 Deducting *${kasCost} KAS* (₦${amountNgn}) for ${provider}...`);
                 
-                // BYPASS the string-parser and execute on-chain transfer natively!
-                const paymentResult = await KaspaService.sendExternalTransaction(user.mnemonic, operatorAddress, kasCost);
+                // ⚠️ DEVELOPMENT MODE: FAKED SUCCESS 
+                // When you are ready for production, UNCOMMENT the next two lines and DELETE the mock success line!
+                // const operatorAddress = (process.env.OPERATOR_WALLET_ADDRESS || '').replace(/["']/g, '').trim(); 
+                // const paymentResult = await KaspaService.sendExternalTransaction(user.mnemonic, operatorAddress, kasCost);
+                
+                const paymentResult: any = { success: true, txId: 'SIMULATED_TEST_TX' }; // <-- FAKE SUCCESS
 
 
                 if (!paymentResult.success) {
@@ -399,20 +393,21 @@ router.post(
                   continue;
                 }
 
-                // 3. User successfully paid KAS! Trigger VTpass API
+
+                // 4. Trigger VTpass API
                 await WhatsAppService.sendMessage(senderPhone, `✅ KAS payment complete. Fetching utility from ${provider}...`);
                 
                 let vtpassResult: any = { success: false, message: 'Unknown error' };
 
 
                 if (userState.intent === 'BUY_AIRTIME' || userState.intent === 'BUY_DATA') {
-                  vtpassResult = await VtpassService.buyAirtime(provider, senderPhone, amountNgn);
+                  vtpassResult = await VtpassService.buyAirtime(provider, target!, amountNgn);
                 } else if (userState.intent === 'PAY_ELECTRICITY') {
                   vtpassResult = await VtpassService.payElectricity(provider, target!, amountNgn, senderPhone);
                 }
 
 
-                // 4. Generate the digital receipt
+                // 5. Generate Receipt
                 if (vtpassResult.success) {
                   const typeMap = { BUY_AIRTIME: 'AIRTIME', BUY_DATA: 'DATA', PAY_ELECTRICITY: 'ELECTRICITY' } as const;
 
@@ -436,8 +431,6 @@ router.post(
                   ]);
                   continue;
                 } else {
-                  // VERY IMPORTANT: If VTpass fails, we must notify the user. 
-                  // In production, this requires an automated reverse-transfer of KAS.
                   await clearUserState(senderPhone);
                   await WhatsAppService.sendMessage(senderPhone, `❌ Provider Error: ${vtpassResult.message}\n\n⚠️ Your ${kasCost} KAS was deducted. Please contact support to have it refunded manually.`);
                   continue;
@@ -465,8 +458,8 @@ router.post(
               continue;
             }
 
+
             if (parsed.intent === 'REDEEM_VOUCHER') {
-              // Extract the code from the AI, or fallback to stripping the word 'redeem'
               const code = parsed.voucherCode || textBody.replace(/redeem/i, '').trim();
               
               if (!code) {
@@ -477,12 +470,10 @@ router.post(
 
               await WhatsAppService.sendMessage(senderPhone, `🔄 Verifying voucher \`${code}\`...`);
               
-              // Process the background /redeem command
               const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, `/redeem ${code}`);
               
               await WhatsAppService.sendMessage(senderPhone, resultMessage);
               
-              // If successful, prompt them to check their new balance
               if (resultMessage.includes('Successful') || resultMessage.includes('✅')) {
                  await WhatsAppService.sendInteractiveButtons(senderPhone, 'What would you like to do next?', [
                   { id: 'menu_wallet', title: '🔐 Check Balance' }
@@ -490,6 +481,7 @@ router.post(
               }
               continue;
             }
+
 
             if (parsed.intent === 'SEND_KAS') {
               const amount = parsed.amount;
@@ -548,16 +540,20 @@ router.post(
             if (parsed.intent === 'BUY_AIRTIME') {
               const amount = parsed.amount;
               const provider = (parsed.provider || 'MTN').toUpperCase();
+              
+              const targetPhone = parsed.targetPhone || parsed.recipient || senderPhone;
 
 
               if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-                await WhatsAppService.sendMessage(senderPhone, '⚠️ Please specify a valid amount for airtime.\nExample: *Buy 1000 MTN airtime*');
+                await WhatsAppService.sendMessage(senderPhone, '⚠️ Please specify a valid amount for airtime.\nExample: *Buy 1000 MTN airtime for 08012345678*');
                 continue;
               }
 
 
-              await saveUserState(senderPhone, { step: 'AWAITING_PIN', intent: 'BUY_AIRTIME', amount: amount, provider: provider });
-              await WhatsAppService.sendMessage(senderPhone, `Purchase *₦${amount} ${provider}* airtime for this line.\n\nPlease reply with your *Transaction PIN* to confirm:`);
+              await saveUserState(senderPhone, { step: 'AWAITING_PIN', intent: 'BUY_AIRTIME', amount: amount, provider: provider, targetPhone: targetPhone });
+              
+              const displayTarget = targetPhone === senderPhone ? 'this line' : `\`${targetPhone}\``;
+              await WhatsAppService.sendMessage(senderPhone, `Purchase *₦${amount} ${provider}* airtime for ${displayTarget}.\n\nPlease reply with your *Transaction PIN* to confirm:`);
               continue;
             }
             
@@ -565,12 +561,18 @@ router.post(
               const amount = parsed.amount;
               const provider = (parsed.provider || 'UNKNOWN').toUpperCase();
               
+              const targetPhone = parsed.targetPhone || parsed.recipient || senderPhone;
+              
               if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-                await WhatsAppService.sendMessage(senderPhone, `⚠️ Please specify a valid amount.\nExample: *Buy 1000 MTN data*`);
+                await WhatsAppService.sendMessage(senderPhone, `⚠️ Please specify a valid amount.\nExample: *Buy 1000 MTN data for 08012345678*`);
                 continue;
               }
-              await saveUserState(senderPhone, { step: 'AWAITING_PIN', intent: 'BUY_DATA', amount: amount, provider: provider });
-              await WhatsAppService.sendMessage(senderPhone, `Purchase *₦${amount} ${provider} data* for this line.\n\nPlease reply with your *Transaction PIN* to confirm:`);
+
+
+              await saveUserState(senderPhone, { step: 'AWAITING_PIN', intent: 'BUY_DATA', amount: amount, provider: provider, targetPhone: targetPhone });
+              
+              const displayTarget = targetPhone === senderPhone ? 'this line' : `\`${targetPhone}\``;
+              await WhatsAppService.sendMessage(senderPhone, `Purchase *₦${amount} ${provider} data* for ${displayTarget}.\n\nPlease reply with your *Transaction PIN* to confirm:`);
               continue;
             }
 
