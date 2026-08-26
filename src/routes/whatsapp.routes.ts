@@ -447,6 +447,31 @@ router.post(
               continue;
             }
 
+            if (parsed.intent === 'REDEEM_VOUCHER') {
+              // Extract the code from the AI, or fallback to stripping the word 'redeem'
+              const code = parsed.voucherCode || textBody.replace(/redeem/i, '').trim();
+              
+              if (!code) {
+                await WhatsAppService.sendMessage(senderPhone, '⚠️ Please provide the voucher code you want to redeem.\nExample: *Redeem KAS-123456*');
+                continue;
+              }
+
+
+              await WhatsAppService.sendMessage(senderPhone, `🔄 Verifying voucher \`${code}\`...`);
+              
+              // Process the background /redeem command
+              const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, `/redeem ${code}`);
+              
+              await WhatsAppService.sendMessage(senderPhone, resultMessage);
+              
+              // If successful, prompt them to check their new balance
+              if (resultMessage.includes('Successful') || resultMessage.includes('✅')) {
+                 await WhatsAppService.sendInteractiveButtons(senderPhone, 'What would you like to do next?', [
+                  { id: 'menu_wallet', title: '🔐 Check Balance' }
+                ]);
+              }
+              continue;
+            }
 
             if (parsed.intent === 'SEND_KAS') {
               const amount = parsed.amount;

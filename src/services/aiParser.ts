@@ -56,6 +56,7 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
           ALLOWED INTENTS:
           - "BALANCE": User wants to check their wallet balance.
+          - "REDEEM_VOUCHER": User wants to redeem a Kaspa voucher. You must extract the code into a 'vouchercode' field (e.g., 'KASP-XYZ123').
           - "SEND_KAS": User wants to send/transfer Kaspa (KAS). Extract "amount" (number) and "recipient".
           - "BUY_AIRTIME": User wants to buy airtime. Extract "amount" (number) and "provider" (e.g., MTN, GLO).
           - "BUY_DATA": User wants to buy internet data. Extract "amount" (number) and "provider".
@@ -78,7 +79,8 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
             "meterNumber": string | null,
             "confidence": number,
             "conversationalReply": string | null,
-            "pin": string | null
+            "pin": string | null,
+            "voucherCode": string | null
            }`
         },
         {
