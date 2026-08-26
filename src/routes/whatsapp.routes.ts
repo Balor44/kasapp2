@@ -355,8 +355,17 @@ router.post(
                if (userState.intent && ['BUY_AIRTIME', 'BUY_DATA', 'PAY_ELECTRICITY'].includes(userState.intent as string)) {
                 const amountNgn = Number(userState.amount);
                 const provider = userState.provider || 'MTN';
-                const target = userState.intent === 'PAY_ELECTRICITY' ? userState.meterNumber : senderPhone;
                 
+                // Format WhatsApp phone number (234...) to Nigerian local format (0...) for VTpass
+                let localPhone = senderPhone;
+                if (localPhone.startsWith('234')) {
+                  localPhone = '0' + localPhone.substring(3);
+                } else if (localPhone.startsWith('+234')) {
+                  localPhone = '0' + localPhone.substring(4);
+                }
+
+                const target = userState.intent === 'PAY_ELECTRICITY' ? userState.meterNumber : localPhone;
+
                 // 1. Fetch Real-Time Kaspa Price!
                 await WhatsAppService.sendMessage(senderPhone, '🔄 Fetching real-time Kaspa exchange rates...');
                 const liveKasExchangeRate = await PriceService.getKaspaToNairaRate(); 
