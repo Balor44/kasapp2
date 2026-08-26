@@ -10,6 +10,8 @@ import { ChatbotService } from '../services/chatbot.service';
 import { KaspaService } from '../wallet/kaspa.service';
 import { KnsService } from '../services/kns.service';
 import { ReceiptService } from '../services/receipt.service';
+import { VtpassService } from '../services/vtpass.service'; 
+import { PriceService } from '../services/price.service'; // Added Real-Time Oracle Import
 
 
 const router = Router();
@@ -201,7 +203,7 @@ router.post(
                     senderPhone,
                     `❌ Could not resolve *${recipient}*. Please ensure the domain is registered or enter a standard \`kaspa:q...\` address:`
                   );
-                  continue; 
+                  continue;
                 }
 
 
@@ -324,7 +326,7 @@ router.post(
 
 
                     if (receiver) {
-                      const receiverAlert = 
+                      const receiverAlert =
                         `🔔 *CREDIT ALERT*\n` +
                         `━━━━━━━━━━━━━━━━━━━━\n` +
                         `You just received *${targetAmount} KAS*!\n\n` +
@@ -347,42 +349,64 @@ router.post(
                   await WhatsAppService.sendMessage(senderPhone, rawResponse || `❌ Transaction failed.`);
                   continue;
                 }
-              } 
+              }
               
-              // --- EXECUTION: UTILITY BILLS ---
+              // --- EXECUTION: UTILITY BILLS (LIVE VTPASS + LIVE ORACLE) ---
                if (userState.intent && ['BUY_AIRTIME', 'BUY_DATA', 'PAY_ELECTRICITY'].includes(userState.intent as string)) {
-              let command = '';
+                const amountNgn = Number(userState.amount);
+                const provider = userState.provider || 'MTN';
                 const target = userState.intent === 'PAY_ELECTRICITY' ? userState.meterNumber : senderPhone;
                 
-                if (userState.intent === 'BUY_AIRTIME') {
-                  command = `/airtime ${userState.provider} ${senderPhone} ${userState.amount}`;
-                } else if (userState.intent === 'BUY_DATA') {
-                  command = `/data ${userState.provider} ${senderPhone} ${userState.amount}`;
-                } else if (userState.intent === 'PAY_ELECTRICITY') {
-                  command = `/electricity ${userState.provider} ${userState.meterNumber} ${userState.amount}`;
+                // 1. Fetch Real-Time Kaspa Price!
+                await WhatsAppService.sendMessage(senderPhone, '🔄 Fetching real-time Kaspa exchange rates...');
+                const liveKasExchangeRate = await PriceService.getKaspaToNairaRate(); 
+                
+                // Add a small spread (e.g., 2%) to cover VTpass fees and network volatility
+                const spreadRate = liveKasExchangeRate * 0.98; 
+                const kasCost = +(amountNgn / spreadRate).toFixed(4);
+
+
+                // 2. Transfer KAS to Kasapp Treasury (Using a placeholder treasury address for now)
+                const treasuryAddress = process.env.TREASURY_WALLET_ADDRESS || 'kaspa:qzry9408eewd2w0j5v7p4hxntwudgucx3unv7z3rkhurxnmfhm47j9hwt3gjw';
+                
+                await WhatsAppService.sendMessage(senderPhone, `📉 Live Rate: 1 KAS = ₦${spreadRate.toFixed(2)}\n🔄 Deducting *${kasCost} KAS* (₦${amountNgn}) for ${provider}...`);
+                const paymentResult = await ChatbotService.processIncomingMessage(senderPhone, `/send ${treasuryAddress} ${kasCost}`);
+
+
+                // Check if user has sufficient funds and the transaction passed
+                if (!paymentResult.includes('Successful') && !paymentResult.includes('TXID') && !/([a-f0-9]{64})/i.test(paymentResult)) {
+                  await clearUserState(senderPhone);
+                  await WhatsAppService.sendMessage(senderPhone, `❌ Insufficient KAS balance. You need ${kasCost} KAS to purchase ₦${amountNgn}.\n\nError: ${paymentResult}`);
+                  continue;
                 }
 
 
-                const rawResponse = await ChatbotService.processIncomingMessage(senderPhone, command);
+                // 3. User successfully paid KAS! Trigger VTpass API
+                await WhatsAppService.sendMessage(senderPhone, `✅ KAS payment complete. Fetching utility from ${provider}...`);
+                
+                let vtpassResult: any = { success: false, message: 'Unknown error' };
 
 
-                if (rawResponse.includes('Successful') || rawResponse.includes('✅')) {
-                  const refMatch = rawResponse.match(/(?:Ref|Reference):\s*([A-Za-z0-9_-]+)/i);
-                  const tokenMatch = rawResponse.match(/(?:Token|PIN):\s*([0-9-\s]+)/i);
-                  const kasMatch = rawResponse.match(/([0-9.]+)\s*KAS/i);
+                if (userState.intent === 'BUY_AIRTIME' || userState.intent === 'BUY_DATA') {
+                  vtpassResult = await VtpassService.buyAirtime(provider, senderPhone, amountNgn);
+                } else if (userState.intent === 'PAY_ELECTRICITY') {
+                  vtpassResult = await VtpassService.payElectricity(provider, target!, amountNgn, senderPhone);
+                }
 
 
+                // 4. Generate the digital receipt
+                if (vtpassResult.success) {
                   const typeMap = { BUY_AIRTIME: 'AIRTIME', BUY_DATA: 'DATA', PAY_ELECTRICITY: 'ELECTRICITY' } as const;
 
 
                   const beautifulReceipt = ReceiptService.formatBillReceipt({
                     type: typeMap[userState.intent as keyof typeof typeMap],
-                    provider: userState.provider || 'UNKNOWN',
+                    provider: provider,
                     target: target || 'Unknown Target',
-                    amountNgn: userState.amount || '0',
-                    reference: refMatch ? refMatch[1] : null,
-                    token: tokenMatch ? tokenMatch[1]?.trim() : null,
-                    kasDeducted: kasMatch ? kasMatch[1] : null
+                    amountNgn: amountNgn,
+                    reference: vtpassResult.reference,
+                    token: vtpassResult.token || null,
+                    kasDeducted: kasCost
                   });
 
 
@@ -394,8 +418,10 @@ router.post(
                   ]);
                   continue;
                 } else {
+                  // VERY IMPORTANT: If VTpass fails, we must notify the user. 
+                  // In production, this requires an automated reverse-transfer of KAS.
                   await clearUserState(senderPhone);
-                  await WhatsAppService.sendMessage(senderPhone, rawResponse || `❌ Transaction failed.`);
+                  await WhatsAppService.sendMessage(senderPhone, `❌ Provider Error: ${vtpassResult.message}\n\n⚠️ Your ${kasCost} KAS was deducted. Please contact support to have it refunded manually.`);
                   continue;
                 }
               }

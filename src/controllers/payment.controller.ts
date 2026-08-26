@@ -44,7 +44,7 @@ export const PaymentController = {
 
 
       const tx_ref = `KASAPP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-      const redirect_url = req.body.redirect_url || `${req.headers.origin || 'https://kasapp.app'}/payment-success`;
+      const redirect_url = req.body.redirect_url || `${req.headers.origin || 'https://mykasapp.com'}/payment-success`;
       
       // ---------------------------------------------------------
       // ROUTE A: PAYSTACK INTEGRATION
