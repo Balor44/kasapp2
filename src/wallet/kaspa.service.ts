@@ -51,10 +51,11 @@ export const KaspaService = {
       const { entries } = await rpc.getUtxosByAddresses({ addresses: [address] });
 
 
-      const totalSompi = entries.reduce(
-        (sum: bigint, utxo: any) => sum + BigInt(utxo.amount),
-        BigInt(0)
-      );
+      const totalSompi = entries.reduce((sum: bigint, utxo: any) => {
+        // Safely extract amount regardless of the kaspa-wasm version structure
+        const amount = utxo.utxoEntry ? utxo.utxoEntry.amount : utxo.amount;
+        return sum + BigInt(amount || 0);
+      }, BigInt(0));
 
 
       return Number(totalSompi) / 100000000;
@@ -74,7 +75,7 @@ export const KaspaService = {
   sendKAS: async (
     fromMnemonic: string,
     toAddress: string,
-    amount: number
+    amount: number | string // Accept strings just in case the AI parser forgets to cast
   ) => {
     const senderAddress = deriveAddress(fromMnemonic);
     const privateKey = derivePrivateKey(fromMnemonic);
@@ -98,16 +99,25 @@ export const KaspaService = {
       }
 
 
+      // 1. FORCE STRICT NUMERIC PARSING (Fixes NaN or string concatenation bugs)
+      const numericAmount = Number(amount);
+      if (isNaN(numericAmount) || numericAmount <= 0) {
+        throw new Error("Invalid transaction amount.");
+      }
+      const sompiAmount = BigInt(Math.round(numericAmount * 100000000));
+
+
+      // 2. GENERATOR UPGRADE
       const generator = new kaspa.Generator({
         entries,
         outputs: [
           {
             address: toAddress,
-            amount: BigInt(Math.round(amount * 100000000)),
+            amount: sompiAmount,
           },
         ],
         changeAddress: senderAddress,
-        priorityFee: BigInt(0),
+        // Removed priorityFee: BigInt(0) to allow the SDK to calculate standard mass fees natively
         networkId: NETWORK,
       });
 
@@ -120,10 +130,8 @@ export const KaspaService = {
         if (!pending) break;
 
 
-        const utxoEntries = pending.getUtxoEntries();
-        for (let i = 0; i < utxoEntries.length; i++) {
-          pending.signInput(i, privateKey);
-        }
+        // 3. MODERN NATIVE BATCH SIGNING
+        pending.sign([privateKey]);
 
 
         txid = await pending.submit(rpc);
@@ -142,7 +150,7 @@ export const KaspaService = {
   sendExternalTransaction: async (
     senderEncryptedMnemonic: string,
     recipientAddress: string,
-    amountKas: number
+    amountKas: number | string
   ): Promise<{ success: boolean; txId?: string; error?: string }> => {
     try {
       const rawMnemonic = decryptMnemonic(
