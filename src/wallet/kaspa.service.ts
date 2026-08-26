@@ -117,7 +117,7 @@ export const KaspaService = {
           },
         ],
         changeAddress: senderAddress,
-        // Removed priorityFee: BigInt(0) to allow the SDK to calculate standard mass fees natively
+        priorityFee: BigInt(0),
         networkId: NETWORK,
       });
 
