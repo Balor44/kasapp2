@@ -31,6 +31,7 @@ export interface UserState {
   provider?: string;     // MTN, Airtel, etc.
   retries?: number;     // Track invalid PIN attempts
   meterNumber?: string;  // For electricity payments
+  targetPhone?: string;  // For third-party recharges
 }
 
 
