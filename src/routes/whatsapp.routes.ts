@@ -366,20 +366,29 @@ router.post(
                 const kasCost = +(amountNgn / spreadRate).toFixed(4);
 
 
-                // 2. Transfer KAS to Kasapp Treasury (Using a placeholder treasury address for now)
-                const treasuryAddress = process.env.TREASURY_WALLET_ADDRESS || 'kaspa:qzry9408eewd2w0j5v7p4hxntwudgucx3unv7z3rkhurxnmfhm47j9hwt3gjw';
+                // 2. Transfer KAS to Kasapp Operator Wallet (Native Execution)
+                const rawAddress = process.env.OPERATOR_WALLET_ADDRESS || '';
+                const operatorAddress = rawAddress.replace(/["']/g, '').trim(); 
                 
-                await WhatsAppService.sendMessage(senderPhone, `📉 Live Rate: 1 KAS = ₦${spreadRate.toFixed(2)}\n🔄 Deducting *${kasCost} KAS* (₦${amountNgn}) for ${provider}...`);
-                const paymentResult = await ChatbotService.processIncomingMessage(senderPhone, `/send ${treasuryAddress} ${kasCost}`);
-
-
-                // Check if user has sufficient funds and the transaction passed
-                if (!paymentResult.includes('Successful') && !paymentResult.includes('TXID') && !/([a-f0-9]{64})/i.test(paymentResult)) {
+                // Prevent invalid operator addresses from crashing the transaction
+                if (!operatorAddress || !operatorAddress.startsWith('kaspa:')) {
                   await clearUserState(senderPhone);
-                  await WhatsAppService.sendMessage(senderPhone, `❌ Insufficient KAS balance. You need ${kasCost} KAS to purchase ₦${amountNgn}.\n\nError: ${paymentResult}`);
+                  await WhatsAppService.sendMessage(senderPhone, `❌ System error: Operator wallet not properly configured in Railway variables.`);
                   continue;
                 }
 
+
+                await WhatsAppService.sendMessage(senderPhone, `📉 Live Rate: 1 KAS = ₦${spreadRate.toFixed(2)}\n🔄 Deducting *${kasCost} KAS* (₦${amountNgn}) for ${provider}...`);
+                
+                // BYPASS the string-parser and execute on-chain transfer natively!
+                const paymentResult = await KaspaService.sendExternalTransaction(user.mnemonic, operatorAddress, kasCost);
+
+
+                if (!paymentResult.success) {
+                  await clearUserState(senderPhone);
+                  await WhatsAppService.sendMessage(senderPhone, `❌ Payment Failed.\n\nDetails: ${paymentResult.error}`);
+                  continue;
+                }
 
                 // 3. User successfully paid KAS! Trigger VTpass API
                 await WhatsAppService.sendMessage(senderPhone, `✅ KAS payment complete. Fetching utility from ${provider}...`);

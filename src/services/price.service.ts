@@ -1,52 +1,60 @@
-// src/services/price.service.ts
 import axios from 'axios';
 
 
 let cachedPrice: number | null = null;
 let lastFetchTime: number = 0;
-const CACHE_DURATION_MS = 60000; // Cache the price for 60 seconds
+const CACHE_DURATION_MS = 60000; 
 
 
 export const PriceService = {
-  /**
-   * Fetches the real-time Kaspa to NGN exchange rate.
-   */
   getKaspaToNairaRate: async (): Promise<number> => {
     const now = Date.now();
 
 
-    // Return the cached price if it's less than 60 seconds old
     if (cachedPrice && (now - lastFetchTime < CACHE_DURATION_MS)) {
-      return cachedPrice as number; // <--- ADDED 'as number'
+      return cachedPrice as number;
     }
+
+
+    let livePrice = 0;
 
 
     try {
-      // Fetch live KAS/NGN price from CoinGecko
-      const response = await axios.get(
-        'https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=ngn'
-      );
-
-
-      if (response.data && response.data.kaspa && response.data.kaspa.ngn) {
-        cachedPrice = response.data.kaspa.ngn;
-        lastFetchTime = now;
-        console.log(`[Price Oracle] Updated live KAS/NGN rate: ₦${cachedPrice}`);
-        return cachedPrice as number; // <--- ADDED 'as number'
-      } else {
-        throw new Error('Invalid response structure from CoinGecko');
+      // 1. Try CoinGecko First
+      const cg = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=ngn', { timeout: 4000 });
+      if (cg.data?.kaspa?.ngn) {
+        livePrice = cg.data.kaspa.ngn;
+        console.log(`[Price Oracle] CoinGecko Success: ₦${livePrice}`);
       }
     } catch (error) {
-      console.error('[Price Oracle Error]: Could not fetch live Kaspa price.', error);
-      
-      // If the API fails but we have an old cached price, use it as a fallback
-      if (cachedPrice) {
-        console.warn('[Price Oracle] Using stale cached price as fallback.');
-        return cachedPrice as number; // <--- ADDED 'as number'
-      }
-      
-      // Absolute fallback
-      return 250; 
+      console.warn('[Price Oracle] CoinGecko rate-limited on Railway. Trying MEXC...');
     }
+
+
+    if (!livePrice) {
+      try {
+        // 2. Fallback to MEXC (Live KAS/USDT * 1600 NGN)
+        const mexc = await axios.get('https://api.mexc.com/api/v3/ticker/price?symbol=KASUSDT', { timeout: 4000 });
+        if (mexc.data?.price) {
+          const kasUsdt = parseFloat(mexc.data.price);
+          livePrice = kasUsdt * 1600; // Realistic USDT to NGN conversion
+          console.log(`[Price Oracle] MEXC Success: $${kasUsdt} (~₦${livePrice})`);
+        }
+      } catch (error) {
+        console.error('[Price Oracle Error] Both APIs failed.');
+      }
+    }
+
+
+    if (!livePrice) {
+      // 3. Absolute Fallback (Updated to real 2026 market range instead of 250)
+      console.warn('[Price Oracle] Using hardcoded fallback.');
+      livePrice = 40; 
+    }
+
+
+    cachedPrice = livePrice;
+    lastFetchTime = now;
+    return cachedPrice as number;
   }
 };
