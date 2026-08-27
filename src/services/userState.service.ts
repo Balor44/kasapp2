@@ -32,6 +32,7 @@ export interface UserState {
   retries?: number;     // Track invalid PIN attempts
   meterNumber?: string;  // For electricity payments
   targetPhone?: string;  // For third-party recharges
+  smartcardNumber?: string; // For Cable Subscriptions
 }
 
 

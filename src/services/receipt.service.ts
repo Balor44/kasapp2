@@ -11,7 +11,7 @@ export interface SendKasReceiptParams {
 
 
 export interface BillReceiptParams {
-  type: 'AIRTIME' | 'DATA' | 'ELECTRICITY';
+  type: 'AIRTIME' | 'DATA' | 'ELECTRICITY' | 'TV';
   provider: string;
   target: string;
   amountNgn: number | string;

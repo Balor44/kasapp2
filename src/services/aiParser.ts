@@ -25,6 +25,7 @@ export interface IntentResponse {
     | "REDEEM_VOUCHER"
     | "SET_PIN"
     | "HELP"
+    | "BUY_TV"
     | "UNKNOWN";
   amount?: number | null;
   recipient?: string | null;
@@ -33,6 +34,7 @@ export interface IntentResponse {
   voucherCode?: string | null;
   pin?: string | null;
   meterNumber?: string | null;
+  smartcardNumber?: string | null; 
   confidence: number;
   conversationalReply?: string | null;
 }
@@ -63,6 +65,7 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
           - "BUY_DATA": User wants to buy internet data. Extract "amount" (number), "provider", and IF they specify a phone number, extract it as "targetPhone".
           - "PAY_ELECTRICITY": User wants to pay electricity bill. Extract "amount", "provider" (e.g., IKEDC), and "meterNumber".
           - "SET_PIN": User wants to create or update their security PIN. Extract "pin" (string of 4-6 digits).
+          - "BUY_TV": User wants to pay for cable TV. Extract "amount", "provider" (e.g., DSTV, GOTV), and "smartcardNumber".
           - "HELP": User greets, makes small talk, or asks for help.
           - "UNKNOWN": Message is completely unrelated.
 
@@ -73,12 +76,13 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
 
           Return strict JSON:
           {
-            "intent": "BALANCE" | "SEND_KAS" | "BUY_AIRTIME" | "BUY_DATA" | "PAY_ELECTRICITY" | "REDEEM_VOUCHER" | "SET_PIN" | "HELP" | "UNKNOWN",
+            "intent": "BALANCE" | "SEND_KAS" | "BUY_AIRTIME" | "BUY_DATA" | "PAY_ELECTRICITY" | "REDEEM_VOUCHER" | "SET_PIN" | "BUY_TV" | "HELP" | "UNKNOWN",
             "amount": number | null,
             "recipient": string | null,
             "provider": string | null,
             "targetPhone": string | null,
             "meterNumber": string | null,
+            "smartcardNumber": string | null,
             "confidence": number,
             "conversationalReply": string | null,
             "pin": string | null,

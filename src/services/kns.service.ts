@@ -9,49 +9,36 @@ export const KnsService = {
       if (!match) return null;
 
 
-      const domainName = match[1].toLowerCase(); 
+      const domainName = match[1].toLowerCase();
       const cleanDomain = `${domainName}.kas`;
 
 
-      // 2. Race the top Enterprise and Community Indexers simultaneously
-      const urlsToTry = [
-        `https://api.kaspa.com/api/v1/kns/domain/${domainName}`, // Kaspa Enterprise
-        `https://api.kaspa.com/api/v1/kns/domain/${cleanDomain}`, 
-        `https://api.knsdomains.org/mainnet/api/v1/domain/${domainName}` // Official KNS
-      ];
+      // 2. Query the official KNS Mainnet Endpoint
+      const url = `https://api.knsdomains.org/mainnet/api/v1/domain/${cleanDomain}`;
 
 
-      for (const url of urlsToTry) {
-        try {
-          const response = await axios.get(url, { 
-            timeout: 8000,
-            headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "application/json"
-            }
-          }); 
-          
-          const payload = response.data;
-          const record = payload?.data || payload?.result || (Array.isArray(payload) ? payload[0] : payload);
-          
-          // Grab the address regardless of which API version responds
-          const resolvedAddress = 
-            record?.ownerAddress || 
-            record?.owner || 
-            record?.address || 
-            record?.wallet || 
-            record?.kaspaAddress;
-
-
-          if (resolvedAddress && resolvedAddress.startsWith('kaspa:')) {
-            return resolvedAddress;
+      try {
+        const response = await axios.get(url, {
+          timeout: 8000,
+          headers: {
+            "Accept": "application/json"
           }
-        } catch (e) {
-           // Silently fail and try the next URL in the list
+        });
+        
+        // The API returns the domain metadata; we just need the owner
+        const resolvedAddress = response.data?.owner;
+
+
+        if (resolvedAddress && resolvedAddress.startsWith('kaspa:')) {
+          return resolvedAddress;
         }
+      } catch (e: any) {
+        console.error(`[KNS API Error] Failed to resolve ${cleanDomain}:`, e.message);
       }
+      
       return null;
     } catch (error) {
+      console.error(`[KNS Service Error]:`, error);
       return null;
     }
   }

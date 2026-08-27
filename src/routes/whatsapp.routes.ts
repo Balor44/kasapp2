@@ -352,7 +352,7 @@ router.post(
               }
               
               // --- EXECUTION: UTILITY BILLS (LIVE VTPASS + LIVE ORACLE) ---
-               if (userState.intent && ['BUY_AIRTIME', 'BUY_DATA', 'PAY_ELECTRICITY'].includes(userState.intent as string)) {
+               if (userState.intent && ['BUY_AIRTIME', 'BUY_DATA', 'PAY_ELECTRICITY', 'BUY_TV'].includes(userState.intent as string)) {
                 const amountNgn = Number(userState.amount);
                 const provider = userState.provider || 'MTN';
                 
@@ -365,23 +365,26 @@ router.post(
                 }
 
 
-                const target = userState.intent === 'PAY_ELECTRICITY' ? userState.meterNumber : formattedPhone;
+                // Dynamically route the target based on utility type
+                let target = formattedPhone;
+                if (userState.intent === 'PAY_ELECTRICITY') target = userState.meterNumber;
+                if (userState.intent === 'BUY_TV') target = userState.smartcardNumber;
 
 
                 // 2. Fetch Real-Time Kaspa Price
                 await WhatsAppService.sendMessage(senderPhone, '🔄 Fetching real-time Kaspa exchange rates...');
-                const liveKasExchangeRate = await PriceService.getKaspaToNairaRate(); 
+                const liveKasExchangeRate = await PriceService.getKaspaToNairaRate();
                 
-                const spreadRate = liveKasExchangeRate * 0.98; 
+                const spreadRate = liveKasExchangeRate * 0.98;
                 const kasCost = +(amountNgn / spreadRate).toFixed(4);
 
 
                 // 3. Fake the Kaspa Transfer for Sandbox Testing (Saves your real KAS)
                 await WhatsAppService.sendMessage(senderPhone, `📉 Live Rate: 1 KAS = ₦${spreadRate.toFixed(2)}\n🔄 Deducting *${kasCost} KAS* (₦${amountNgn}) for ${provider}...`);
                 
-                // ⚠️ DEVELOPMENT MODE: FAKED SUCCESS 
+                // ⚠️ DEVELOPMENT MODE: FAKED SUCCESS
                 // When you are ready for production, UNCOMMENT the next two lines and DELETE the mock success line!
-                // const operatorAddress = (process.env.OPERATOR_WALLET_ADDRESS || '').replace(/["']/g, '').trim(); 
+                // const operatorAddress = (process.env.OPERATOR_WALLET_ADDRESS || '').replace(/["']/g, '').trim();
                 // const paymentResult = await KaspaService.sendExternalTransaction(user.mnemonic, operatorAddress, kasCost);
                 
                 const paymentResult: any = { success: true, txId: 'SIMULATED_TEST_TX' }; // <-- FAKE SUCCESS
@@ -404,12 +407,14 @@ router.post(
                   vtpassResult = await VtpassService.buyAirtime(provider, target!, amountNgn);
                 } else if (userState.intent === 'PAY_ELECTRICITY') {
                   vtpassResult = await VtpassService.payElectricity(provider, target!, amountNgn, senderPhone);
+                } else if (userState.intent === 'BUY_TV') {
+                  vtpassResult = await VtpassService.payTv(provider, target!, amountNgn, formattedPhone);
                 }
 
 
                 // 5. Generate Receipt
                 if (vtpassResult.success) {
-                  const typeMap = { BUY_AIRTIME: 'AIRTIME', BUY_DATA: 'DATA', PAY_ELECTRICITY: 'ELECTRICITY' } as const;
+                  const typeMap = { BUY_AIRTIME: 'AIRTIME', BUY_DATA: 'DATA', PAY_ELECTRICITY: 'ELECTRICITY', BUY_TV: 'TV' } as const;
 
 
                   const beautifulReceipt = ReceiptService.formatBillReceipt({
@@ -590,6 +595,20 @@ router.post(
               continue;
             }
             
+            if (parsed.intent === 'BUY_TV') {
+              const amount = parsed.amount;
+              const provider = (parsed.provider || 'UNKNOWN').toUpperCase();
+              
+              if (!amount || !parsed.smartcardNumber) {
+                await WhatsAppService.sendMessage(senderPhone, `⚠️ Please specify amount, provider, and smartcard/IUC number.\nExample: *Pay 5000 for DSTV smartcard 1212121212*`);
+                continue;
+              }
+              await saveUserState(senderPhone, { step: 'AWAITING_PIN', intent: 'BUY_TV', amount: amount, provider: provider, smartcardNumber: parsed.smartcardNumber });
+              await WhatsAppService.sendMessage(senderPhone, `Pay *₦${amount}* for ${provider} smartcard \`${parsed.smartcardNumber}\`.\n\nPlease reply with your *Transaction PIN* to confirm:`);
+              continue;
+            }
+
+
             if (parsed.intent === 'BALANCE') {
               await WhatsAppService.sendMessage(senderPhone, '🔄 Checking your wallet balance on-chain...');
               const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, '/balance');

@@ -25,7 +25,7 @@ export const VtpassService = {
    */
   getServiceID: (provider: string, type: 'AIRTIME' | 'DATA' | 'ELECTRICITY'): string => {
     const p = provider.toLowerCase();
-    
+   
     if (type === 'AIRTIME' || type === 'DATA') {
       if (p.includes('mtn')) return 'mtn';
       if (p.includes('airtel')) return 'airtel';
@@ -43,8 +43,8 @@ export const VtpassService = {
       if (p.includes('ibadan') || p.includes('ibedc')) return 'ibadan-electric';
       if (p.includes('enugu') || p.includes('eedc')) return 'enugu-electric';
     }
-    
-    return provider; 
+   
+    return provider;
   },
 
 
@@ -58,7 +58,7 @@ export const VtpassService = {
 
     try {
       console.log(`[VTpass Sandbox] Simulating Airtime Purchase: ${amount} for ${phone} on ${serviceID}`);
-      
+     
       const response = await axios.post(
         `${VTPASS_BASE_URL}/pay`,
         {
@@ -74,6 +74,9 @@ export const VtpassService = {
           },
         }
       );
+
+
+      console.log(`[VTpass Raw API Response]:`, JSON.stringify(response.data));
 
 
       // VTpass returns code "000" for success
@@ -103,16 +106,16 @@ export const VtpassService = {
 
     try {
       console.log(`[VTpass Sandbox] Simulating Electricity Purchase: ${amount} for meter ${meterNumber}`);
-      
+     
       const response = await axios.post(
         `${VTPASS_BASE_URL}/pay`,
         {
           request_id: requestId,
           serviceID: serviceID,
           billersCode: meterNumber, // In Sandbox, use "1111111111111" for a guaranteed success test
-          variation_code: 'prepaid', 
+          variation_code: 'prepaid',
           amount: amount,
-          phone: customerPhone, 
+          phone: customerPhone,
         },
         {
           headers: {
@@ -123,9 +126,12 @@ export const VtpassService = {
       );
 
 
+      console.log(`[VTpass Raw API Response]:`, JSON.stringify(response.data));
+
+
       if (response.data && response.data.code === '000') {
         const token = response.data.purchased_code || response.data.token || '1234-5678-9012-3456-7890'; // Sandbox fallback
-        
+       
         return {
           success: true,
           reference: response.data.content.transactions.transactionId,
@@ -139,6 +145,65 @@ export const VtpassService = {
     } catch (error: any) {
       console.error('[VTpass Electricity Sandbox Error]:', error.response?.data || error.message);
       return { success: false, message: 'Electricity provider is currently unreachable.' };
+    }
+  }, // <--- THIS COMMA WAS MISSING!
+
+
+  /**
+   * Pay Cable TV (Sandbox Mode)
+   */
+  payTv: async (provider: string, smartcard: string, amount: number, phone: string) => {
+    const serviceID = provider.toLowerCase();
+    const requestId = VtpassService.generateRequestId();
+
+
+    // Default variation codes just to get the sandbox success
+    let variation_code = 'dstv-padi';
+    if (serviceID === 'gotv') variation_code = 'gotv-lite';
+    if (serviceID === 'startimes') variation_code = 'nova';
+
+
+    // Sandbox test card MUST be 1212121212
+    const isSandbox = VTPASS_BASE_URL.includes('sandbox');
+    const targetCard = isSandbox ? '1212121212' : smartcard;
+
+
+    try {
+      const response = await axios.post(
+        `${VTPASS_BASE_URL}/pay`,
+        {
+          request_id: requestId,
+          serviceID: serviceID,
+          billersCode: targetCard,
+          variation_code: variation_code,
+          amount: amount,
+          phone: phone,
+          subscription_type: 'change'
+        },
+        {
+          headers: {
+            'api-key': VTPASS_API_KEY,
+            'secret-key': VTPASS_SECRET_KEY,
+          },
+        }
+      );
+
+
+      console.log(`[VTpass Raw API Response]:`, JSON.stringify(response.data));
+
+
+      if (response.data && response.data.code === '000') {
+        return {
+          success: true,
+          reference: response.data.content.transactions.transactionId,
+          message: 'Transaction Successful',
+        };
+      } else {
+        return { success: false, message: response.data.response_description || 'VTpass API failed.' };
+      }
+    } catch (error: any) {
+      console.error('[VTpass Crash Error]:', error.response?.data || error.message);
+      return { success: false, message: 'Provider network is currently unavailable.' };
     }
   }
 };
