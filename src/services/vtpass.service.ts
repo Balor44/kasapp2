@@ -104,7 +104,6 @@ export const VtpassService = {
 
 
     if (isData) {
-      delete payload.phone; 
       payload.billersCode = phone;
       payload.variation_code = variationCode;
     }
