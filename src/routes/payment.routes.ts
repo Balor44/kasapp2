@@ -1,3 +1,4 @@
+// src/routes/payment.routes.ts
 import { Router } from 'express';
 import { PaymentController } from '../controllers/payment.controller';
 
@@ -5,18 +6,16 @@ import { PaymentController } from '../controllers/payment.controller';
 const router = Router();
 
 
-// Route called by website to get Flutterwave payment URL
+// Route called by website to initialize Paystack payment
 router.post('/payment/initialize', PaymentController.initializeVoucherPurchase);
 
 
-// Webhook endpoint registered on Flutterwave Dashboard
-router.post('/payment/flutterwave-webhook', PaymentController.handleFlutterwaveWebhook);
-
-
-// Route called by frontend after redirect to fetch the generated voucher
+// Route called by frontend after redirect to fetch the generated voucher details
 router.get('/payment/verify', PaymentController.verifyVoucherQuery);
 
-router.post(`/webhooks/paystack`, PaymentController.handlePaystackWebhook);
+
+// Webhook endpoint registered on Paystack Dashboard
+router.post('/webhooks/paystack', PaymentController.handlePaystackWebhook);
 
 
 export default router;
