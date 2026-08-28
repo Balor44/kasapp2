@@ -11,7 +11,7 @@ import { KaspaService } from '../wallet/kaspa.service';
 import { KnsService } from '../services/kns.service';
 import { ReceiptService } from '../services/receipt.service';
 import { VtpassService } from '../services/vtpass.service';
-import { PriceService } from '../services/price.service'; // Added Real-Time Oracle Import
+import { PriceService } from '../services/price.service'; 
 
 
 const router = Router();
@@ -78,7 +78,6 @@ router.post(
   '/webhook',
   express.raw({ type: 'application/json', verify: verifyMetaSignature }),
   async (req: Request, res: Response) => {
-    // Acknowledge receipt to Meta immediately
     res.sendStatus(200);
 
 
@@ -172,7 +171,6 @@ router.post(
             }
 
 
-            // Check active Redis session state
             const userState = (await getUserState(senderPhone)) || {};
 
 
@@ -195,9 +193,9 @@ router.post(
 
               if (recipient.toLowerCase().endsWith('.kas')) {
                 await WhatsAppService.sendMessage(senderPhone, `🔍 Resolving KNS domain *${recipient}*...`);
-                
+               
                 const resolvedAddress = await KnsService.resolveDomain(recipient);
-                
+               
                 if (!resolvedAddress) {
                   await WhatsAppService.sendMessage(
                     senderPhone,
@@ -215,7 +213,6 @@ router.post(
               }
 
 
-              // Safely preserve amount and set recipient
               await saveUserState(senderPhone, {
                 ...userState,
                 step: 'AWAITING_PIN',
@@ -232,12 +229,46 @@ router.post(
 
 
             // ---------------------------------------------------------------
+            // STEP A2: AWAITING DATA PLAN SELECTION
+            // ---------------------------------------------------------------
+            if (userState.step === 'AWAITING_DATA_PLAN') {
+              const selectedIndex = parseInt(textBody) - 1;
+              const plans = userState.availableDataPlans || [];
+
+
+              if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= plans.length) {
+                await WhatsAppService.sendMessage(senderPhone, `⚠️ Invalid selection. Please reply with a number between 1 and ${plans.length}.`);
+                continue;
+              }
+
+
+              const selectedPlan = plans[selectedIndex];
+
+
+              await saveUserState(senderPhone, {
+                ...userState,
+                step: 'AWAITING_PIN',
+                amount: selectedPlan.variation_amount,
+                selectedVariationCode: selectedPlan.variation_code
+              });
+
+
+              const displayTarget = userState.targetPhone === senderPhone ? 'this line' : `\`${userState.targetPhone}\``;
+              await WhatsAppService.sendMessage(
+                senderPhone, 
+                `Purchase *${selectedPlan.name}* (₦${selectedPlan.variation_amount}) for ${displayTarget}.\n\nPlease reply with your *Transaction PIN* to confirm:`
+              );
+              continue;
+            }
+
+
+            // ---------------------------------------------------------------
             // STEP B: AWAITING NEW PIN (For PIN Setup)
             // ---------------------------------------------------------------
             if (userState.step === 'AWAITING_NEW_PIN') {
               const newPin = textBody;
               const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, `/setpin ${newPin}`);
-              
+             
               await clearUserState(senderPhone);
               await WhatsAppService.sendMessage(senderPhone, resultMessage);
               continue;
@@ -292,7 +323,7 @@ router.post(
 
 
                 if (rawResponse.includes('TXID:') || rawResponse.includes('Successful') || /([a-f0-9]{64})/i.test(rawResponse)) {
-                  
+                 
                   const txMatch = rawResponse.match(/(?:TXID:\*?\s*|txid:\s*)([a-f0-9]{64})/i) || rawResponse.match(/([a-f0-9]{64})/i);
                   const txId = txMatch ? txMatch[1] : null;
 
@@ -310,7 +341,7 @@ router.post(
 
 
                   await clearUserState(senderPhone);
-                  
+                 
                   // 1. Send receipt to Sender
                   await WhatsAppService.sendInteractiveButtons(senderPhone, beautifulReceipt, [
                     { id: 'menu_wallet', title: '🔐 Check Balance' },
@@ -333,7 +364,7 @@ router.post(
                         `*From:* \`${senderPhone}\`\n` +
                         `*TXID:* \`${txId ? txId.slice(0, 8) + '...' + txId.slice(-8) : 'Confirmed'}\`\n\n` +
                         `_Check your balance to see your updated funds._ 🚀`;
-                      
+                     
                       await WhatsAppService.sendInteractiveButtons(receiver.phone, receiverAlert, [
                         { id: 'menu_wallet', title: '🔐 Check Balance' }
                       ]);
@@ -350,13 +381,12 @@ router.post(
                   continue;
                 }
               }
-              
+             
               // --- EXECUTION: UTILITY BILLS (LIVE VTPASS + LIVE ORACLE) ---
                if (userState.intent && ['BUY_AIRTIME', 'BUY_DATA', 'PAY_ELECTRICITY', 'BUY_TV'].includes(userState.intent as string)) {
                 const amountNgn = Number(userState.amount);
                 const provider = userState.provider || 'MTN';
-                
-                // 1. Format the phone number (Convert WhatsApp 234 to Nigerian 0)
+               
                 let formattedPhone = userState.targetPhone || senderPhone;
                 if (formattedPhone.startsWith('234')) {
                   formattedPhone = '0' + formattedPhone.substring(3);
@@ -365,29 +395,24 @@ router.post(
                 }
 
 
-                // Dynamically route the target based on utility type
                 let target = formattedPhone;
                 if (userState.intent === 'PAY_ELECTRICITY') target = userState.meterNumber;
                 if (userState.intent === 'BUY_TV') target = userState.smartcardNumber;
 
 
-                // 2. Fetch Real-Time Kaspa Price
                 await WhatsAppService.sendMessage(senderPhone, '🔄 Fetching real-time Kaspa exchange rates...');
                 const liveKasExchangeRate = await PriceService.getKaspaToNairaRate();
-                
+               
                 const spreadRate = liveKasExchangeRate * 0.98;
                 const kasCost = +(amountNgn / spreadRate).toFixed(4);
 
 
-                // 3. Fake the Kaspa Transfer for Sandbox Testing (Saves your real KAS)
                 await WhatsAppService.sendMessage(senderPhone, `📉 Live Rate: 1 KAS = ₦${spreadRate.toFixed(2)}\n🔄 Deducting *${kasCost} KAS* (₦${amountNgn}) for ${provider}...`);
-                
-                // ⚠️ DEVELOPMENT MODE: FAKED SUCCESS
-                // When you are ready for production, UNCOMMENT the next two lines and DELETE the mock success line!
+               
                 // const operatorAddress = (process.env.OPERATOR_WALLET_ADDRESS || '').replace(/["']/g, '').trim();
                 // const paymentResult = await KaspaService.sendExternalTransaction(user.mnemonic, operatorAddress, kasCost);
-                
-                const paymentResult: any = { success: true, txId: 'SIMULATED_TEST_TX' }; // <-- FAKE SUCCESS
+               
+                const paymentResult: any = { success: true, txId: 'SIMULATED_TEST_TX' }; 
 
 
                 if (!paymentResult.success) {
@@ -397,14 +422,13 @@ router.post(
                 }
 
 
-                // 4. Trigger VTpass API
                 await WhatsAppService.sendMessage(senderPhone, `✅ KAS payment complete. Fetching utility from ${provider}...`);
-                
+               
                 let vtpassResult: any = { success: false, message: 'Unknown error' };
 
 
                 if (userState.intent === 'BUY_AIRTIME' || userState.intent === 'BUY_DATA') {
-                  vtpassResult = await VtpassService.buyAirtime(provider, target!, amountNgn);
+                  vtpassResult = await VtpassService.buyAirtimeOrData(provider, target!, amountNgn, userState.selectedVariationCode);
                 } else if (userState.intent === 'PAY_ELECTRICITY') {
                   vtpassResult = await VtpassService.payElectricity(provider, target!, amountNgn, senderPhone);
                 } else if (userState.intent === 'BUY_TV') {
@@ -412,7 +436,6 @@ router.post(
                 }
 
 
-                // 5. Generate Receipt
                 if (vtpassResult.success) {
                   const typeMap = { BUY_AIRTIME: 'AIRTIME', BUY_DATA: 'DATA', PAY_ELECTRICITY: 'ELECTRICITY', BUY_TV: 'TV' } as const;
 
@@ -429,7 +452,7 @@ router.post(
 
 
                   await clearUserState(senderPhone);
-                  
+                 
                   await WhatsAppService.sendInteractiveButtons(senderPhone, beautifulReceipt, [
                     { id: 'menu_wallet', title: '🔐 Check Balance' },
                     { id: 'menu_bills', title: '📱 Pay Bills' }
@@ -457,7 +480,7 @@ router.post(
                 await WhatsAppService.sendMessage(senderPhone, resultMessage);
                 continue;
               }
-              
+             
               await saveUserState(senderPhone, { step: 'AWAITING_NEW_PIN' });
               await WhatsAppService.sendMessage(senderPhone, `🔐 Let's secure your wallet. Please reply with a new 4 to 6 digit PIN:`);
               continue;
@@ -466,7 +489,7 @@ router.post(
 
             if (parsed.intent === 'REDEEM_VOUCHER') {
               const code = parsed.voucherCode || textBody.replace(/redeem/i, '').trim();
-              
+             
               if (!code) {
                 await WhatsAppService.sendMessage(senderPhone, '⚠️ Please provide the voucher code you want to redeem.\nExample: *Redeem KAS-123456*');
                 continue;
@@ -474,11 +497,11 @@ router.post(
 
 
               await WhatsAppService.sendMessage(senderPhone, `🔄 Verifying voucher \`${code}\`...`);
-              
+             
               const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, `/redeem ${code}`);
-              
+             
               await WhatsAppService.sendMessage(senderPhone, resultMessage);
-              
+             
               if (resultMessage.includes('Successful') || resultMessage.includes('✅')) {
                  await WhatsAppService.sendInteractiveButtons(senderPhone, 'What would you like to do next?', [
                   { id: 'menu_wallet', title: '🔐 Check Balance' }
@@ -519,13 +542,13 @@ router.post(
 
                 await WhatsAppService.sendMessage(senderPhone, `🔍 Resolving KNS domain *${domainString}*...`);
                 const resolved = await KnsService.resolveDomain(finalRecipient);
-                
+               
                 if (!resolved) {
                   await saveUserState(senderPhone, { step: 'AWAITING_RECIPIENT', intent: 'SEND_KAS', amount: amount });
                   await WhatsAppService.sendMessage(senderPhone, `❌ Could not resolve *${domainString}*. Please reply with a valid Kaspa address or Phone number:`);
                   continue;
                 }
-                
+               
                 await WhatsAppService.sendMessage(senderPhone, `✅ Resolved *${domainString}* to:\n\`${resolved}\``);
                 finalRecipient = resolved;
               }
@@ -545,7 +568,7 @@ router.post(
             if (parsed.intent === 'BUY_AIRTIME') {
               const amount = parsed.amount;
               const provider = (parsed.provider || 'MTN').toUpperCase();
-              
+             
               const targetPhone = parsed.targetPhone || parsed.recipient || senderPhone;
 
 
@@ -556,28 +579,45 @@ router.post(
 
 
               await saveUserState(senderPhone, { step: 'AWAITING_PIN', intent: 'BUY_AIRTIME', amount: amount, provider: provider, targetPhone: targetPhone });
-              
+             
               const displayTarget = targetPhone === senderPhone ? 'this line' : `\`${targetPhone}\``;
               await WhatsAppService.sendMessage(senderPhone, `Purchase *₦${amount} ${provider}* airtime for ${displayTarget}.\n\nPlease reply with your *Transaction PIN* to confirm:`);
               continue;
             }
-            
+           
             if (parsed.intent === 'BUY_DATA') {
-              const amount = parsed.amount;
-              const provider = (parsed.provider || 'UNKNOWN').toUpperCase();
-              
+              const provider = (parsed.provider || 'MTN').toUpperCase();
               const targetPhone = parsed.targetPhone || parsed.recipient || senderPhone;
+
+
+              await WhatsAppService.sendMessage(senderPhone, `🔄 Fetching live data plans for ${provider}...`);
               
-              if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-                await WhatsAppService.sendMessage(senderPhone, `⚠️ Please specify a valid amount.\nExample: *Buy 1000 MTN data for 08012345678*`);
+              const planResult = await VtpassService.getDataVariations(provider);
+              
+              if (!planResult.success || !planResult.variations?.length) {
+                await WhatsAppService.sendMessage(senderPhone, `❌ Could not load ${provider} data plans right now. Please try again later.`);
                 continue;
               }
 
 
-              await saveUserState(senderPhone, { step: 'AWAITING_PIN', intent: 'BUY_DATA', amount: amount, provider: provider, targetPhone: targetPhone });
+              const availablePlans = planResult.variations.slice(0, 20);
               
-              const displayTarget = targetPhone === senderPhone ? 'this line' : `\`${targetPhone}\``;
-              await WhatsAppService.sendMessage(senderPhone, `Purchase *₦${amount} ${provider} data* for ${displayTarget}.\n\nPlease reply with your *Transaction PIN* to confirm:`);
+              let messageText = `📡 *Select a ${provider} Data Plan*\n\nReply with the *number* of the plan you want:\n\n`;
+              
+              availablePlans.forEach((plan: any, index: number) => {
+                messageText += `*${index + 1}.* ${plan.name} - ₦${plan.variation_amount}\n`;
+              });
+
+
+              await saveUserState(senderPhone, { 
+                step: 'AWAITING_DATA_PLAN', 
+                intent: 'BUY_DATA', 
+                provider: provider, 
+                targetPhone: targetPhone,
+                availableDataPlans: availablePlans
+              });
+              
+              await WhatsAppService.sendMessage(senderPhone, messageText);
               continue;
             }
 
@@ -585,7 +625,7 @@ router.post(
             if (parsed.intent === 'PAY_ELECTRICITY') {
               const amount = parsed.amount;
               const provider = (parsed.provider || 'UNKNOWN').toUpperCase();
-              
+             
               if (!amount || !parsed.meterNumber) {
                 await WhatsAppService.sendMessage(senderPhone, `⚠️ Please specify amount, provider, and meter number.\nExample: *Pay 5000 for IKEDC meter 123456789*`);
                 continue;
@@ -594,11 +634,11 @@ router.post(
               await WhatsAppService.sendMessage(senderPhone, `Pay *₦${amount}* for ${provider} meter \`${parsed.meterNumber}\`.\n\nPlease reply with your *Transaction PIN* to confirm:`);
               continue;
             }
-            
+           
             if (parsed.intent === 'BUY_TV') {
               const amount = parsed.amount;
               const provider = (parsed.provider || 'UNKNOWN').toUpperCase();
-              
+             
               if (!amount || !parsed.smartcardNumber) {
                 await WhatsAppService.sendMessage(senderPhone, `⚠️ Please specify amount, provider, and smartcard/IUC number.\nExample: *Pay 5000 for DSTV smartcard 1212121212*`);
                 continue;

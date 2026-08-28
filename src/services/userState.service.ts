@@ -33,6 +33,8 @@ export interface UserState {
   meterNumber?: string;  // For electricity payments
   targetPhone?: string;  // For third-party recharges
   smartcardNumber?: string; // For Cable Subscriptions
+  availableDataPlans?: any[];
+  selectedVariationCode?: string;
 }
 
 

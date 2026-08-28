@@ -49,24 +49,73 @@ export const VtpassService = {
 
 
   /**
-   * Purchase Airtime (Sandbox Mode)
+   * Fetch live data plans for a specific provider
    */
-  buyAirtime: async (provider: string, phone: string, amount: number) => {
-    const serviceID = VtpassService.getServiceID(provider, 'AIRTIME');
-    const requestId = VtpassService.generateRequestId();
+  getDataVariations: async (provider: string) => {
+    const p = provider.toLowerCase();
+    let serviceID = 'mtn-data';
+    if (p.includes('airtel')) serviceID = 'airtel-data';
+    if (p.includes('glo')) serviceID = 'glo-data';
+    if (p.includes('9mobile') || p.includes('etisalat')) serviceID = 'etisalat-data';
 
 
     try {
-      console.log(`[VTpass Sandbox] Simulating Airtime Purchase: ${amount} for ${phone} on ${serviceID}`);
+      const response = await axios.get(
+        `${VTPASS_BASE_URL}/service-variations?serviceID=${serviceID}`,
+        {
+          headers: {
+            'api-key': VTPASS_API_KEY,
+            'public-key': process.env.VTPASS_PUBLIC_KEY || '', 
+          },
+        }
+      );
+
+
+      if (response.data && response.data.content && response.data.content.varations) {
+        return {
+          success: true,
+          serviceID: serviceID,
+          variations: response.data.content.varations 
+        };
+      }
+      return { success: false, message: 'Could not fetch data plans from provider.' };
+    } catch (error: any) {
+      console.error('[VTpass Variations Error]:', error.message);
+      return { success: false, message: 'Provider network is currently unavailable.' };
+    }
+  },
+
+
+  /**
+   * Purchase Airtime or Data (Sandbox Mode)
+   */
+  buyAirtimeOrData: async (provider: string, phone: string, amount: number, variationCode?: string) => {
+    const isData = !!variationCode;
+    const serviceID = VtpassService.getServiceID(provider, isData ? 'DATA' : 'AIRTIME');
+    const requestId = VtpassService.generateRequestId();
+
+
+    const payload: any = {
+      request_id: requestId,
+      serviceID: serviceID,
+      amount: amount,
+      phone: phone, 
+    };
+
+
+    if (isData) {
+      delete payload.phone; 
+      payload.billersCode = phone;
+      payload.variation_code = variationCode;
+    }
+
+
+    try {
+      console.log(`[VTpass Sandbox] Simulating Purchase: ${amount} for ${phone} on ${serviceID}`);
      
       const response = await axios.post(
         `${VTPASS_BASE_URL}/pay`,
-        {
-          request_id: requestId,
-          serviceID: serviceID,
-          amount: amount,
-          phone: phone, // VTpass sandbox will accept your real phone number without actually crediting it
-        },
+        payload,
         {
           headers: {
             'api-key': VTPASS_API_KEY,
@@ -79,7 +128,6 @@ export const VtpassService = {
       console.log(`[VTpass Raw API Response]:`, JSON.stringify(response.data));
 
 
-      // VTpass returns code "000" for success
       if (response.data && response.data.code === '000') {
         return {
           success: true,
@@ -90,7 +138,7 @@ export const VtpassService = {
         return { success: false, message: response.data.response_description || 'VTpass API failed.' };
       }
     } catch (error: any) {
-      console.error('[VTpass Airtime Sandbox Error]:', error.response?.data || error.message);
+      console.error('[VTpass Sandbox Error]:', error.response?.data || error.message);
       return { success: false, message: 'Provider network is currently unavailable.' };
     }
   },
@@ -112,7 +160,7 @@ export const VtpassService = {
         {
           request_id: requestId,
           serviceID: serviceID,
-          billersCode: meterNumber, // In Sandbox, use "1111111111111" for a guaranteed success test
+          billersCode: meterNumber,
           variation_code: 'prepaid',
           amount: amount,
           phone: customerPhone,
@@ -130,7 +178,7 @@ export const VtpassService = {
 
 
       if (response.data && response.data.code === '000') {
-        const token = response.data.purchased_code || response.data.token || '1234-5678-9012-3456-7890'; // Sandbox fallback
+        const token = response.data.purchased_code || response.data.token || '1234-5678-9012-3456-7890'; 
        
         return {
           success: true,
@@ -146,7 +194,7 @@ export const VtpassService = {
       console.error('[VTpass Electricity Sandbox Error]:', error.response?.data || error.message);
       return { success: false, message: 'Electricity provider is currently unreachable.' };
     }
-  }, // <--- THIS COMMA WAS MISSING!
+  },
 
 
   /**
@@ -157,13 +205,11 @@ export const VtpassService = {
     const requestId = VtpassService.generateRequestId();
 
 
-    // Default variation codes just to get the sandbox success
     let variation_code = 'dstv-padi';
     if (serviceID === 'gotv') variation_code = 'gotv-lite';
     if (serviceID === 'startimes') variation_code = 'nova';
 
 
-    // Sandbox test card MUST be 1212121212
     const isSandbox = VTPASS_BASE_URL.includes('sandbox');
     const targetCard = isSandbox ? '1212121212' : smartcard;
 
