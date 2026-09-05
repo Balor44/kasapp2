@@ -30,8 +30,15 @@ const billpay_routes_1 = __importDefault(require("./routes/billpay.routes"));
 const whatsapp_routes_1 = __importDefault(require("./routes/whatsapp.routes"));
 const payment_routes_1 = __importDefault(require("./routes/payment.routes"));
 const merchant_routes_1 = __importDefault(require("./routes/merchant.routes"));
+const merchant_controller_1 = require("./controllers/merchant.controller");
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
+// ==========================================================================
+// CRITICAL: Mount WhatsApp routes BEFORE express.json()
+// This ensures the Meta webhook can receive the raw Buffer for signature verification.
+// ==========================================================================
+app.use('/api/whatsapp', whatsapp_routes_1.default);
+// Global JSON parser for all other routes
 app.use(express_1.default.json());
 // API Routes
 app.use('/api/wallet', wallet_routes_1.default);
@@ -41,8 +48,8 @@ app.use('/api/admin', admin_routes_1.default);
 app.use('/api/redeem', redeem_routes_1.default);
 app.use('/api', message_routes_1.default);
 app.use('/api', waitlist_routes_1.default);
-app.use('/api', whatsapp_routes_1.default);
 app.use('/api', payment_routes_1.default);
+app.post(`/api/v1/merchant/redeem`, merchant_controller_1.redeemMerchantVoucher);
 app.get('/health', (_req, res) => {
     res.json({ status: 'OK', product: 'Kasapp' });
 });

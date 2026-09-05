@@ -1,5 +1,4 @@
 "use strict";
-// src/wallet/kaspa.service.ts
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -33,12 +32,12 @@ const isomorphic_ws_1 = __importDefault(require("isomorphic-ws"));
 globalThis.WebSocket = isomorphic_ws_1.default;
 const kaspa = __importStar(require("kaspa-wasm"));
 const crypto_utils_1 = require("../utils/crypto.utils");
-const NETWORK = process.env.KASPA_NETWORK || "testnet-10"; // "mainnet" or "testnet-10"
+const NETWORK = process.env.KASPA_NETWORK || "mainnet";
 const DERIVATION_PATH = "m/44'/111111'/0'/0/0";
+// Default priority fee in Sompi (1 KAS = 100,000,000 Sompi). 
+// 10,000 Sompi = 0.0001 KAS (ensures rapid inclusion by mainnet validators)
+const DEFAULT_PRIORITY_FEE = BigInt(process.env.KASPA_PRIORITY_FEE_SOMPI || "10000");
 exports.KaspaService = {
-    /**
-     * Generates a new Kaspa keypair and returns both public address and raw mnemonic
-     */
     generateWallet: async () => {
         const mnemonic = bip39.generateMnemonic();
         const address = deriveAddress(mnemonic);
@@ -47,22 +46,18 @@ exports.KaspaService = {
             secret: mnemonic,
         };
     },
-    /**
-     * Helper used for auto-onboarding recipient users
-     * Returns address + encrypted seed phrase ready for MongoDB storage
-     */
     createEncryptedWallet: async () => {
+        const encryptionKey = process.env.ENCRYPTION_KEY;
+        if (!encryptionKey) {
+            throw new Error("[KaspaService] Cannot create encrypted wallet: ENCRYPTION_KEY is not defined in environment.");
+        }
         const { publicKey, secret } = await exports.KaspaService.generateWallet();
-        const encryptionKey = process.env.ENCRYPTION_KEY || "";
         const encryptedSeed = (0, crypto_utils_1.encryptMnemonic)(secret, encryptionKey);
         return {
             address: publicKey,
             encryptedSeed,
         };
     },
-    /**
-     * Fetches UTXOs and calculates on-chain KAS balance
-     */
     getBalance: async (address) => {
         let rpc;
         try {
@@ -72,7 +67,10 @@ exports.KaspaService = {
                 encoding: "borsh",
             });
             const { entries } = await rpc.getUtxosByAddresses({ addresses: [address] });
-            const totalSompi = entries.reduce((sum, utxo) => sum + BigInt(utxo.amount), BigInt(0));
+            const totalSompi = entries.reduce((sum, utxo) => {
+                const amount = utxo.utxoEntry ? utxo.utxoEntry.amount : utxo.amount;
+                return sum + BigInt(amount || 0);
+            }, BigInt(0));
             return Number(totalSompi) / 100000000;
         }
         catch (err) {
@@ -88,10 +86,7 @@ exports.KaspaService = {
             }
         }
     },
-    /**
-     * Core transaction engine: Builds, signs, and submits transactions via kaspa-wasm
-     */
-    sendKAS: async (fromMnemonic, toAddress, amount) => {
+    sendKAS: async (fromMnemonic, toAddress, amount, priorityFeeSompi = DEFAULT_PRIORITY_FEE) => {
         const senderAddress = deriveAddress(fromMnemonic);
         const privateKey = derivePrivateKey(fromMnemonic);
         const resolver = new kaspa.Resolver();
@@ -106,16 +101,24 @@ exports.KaspaService = {
             if (!entries || !entries.length) {
                 throw new Error("Wallet has no spendable UTXOs.");
             }
+            // ===============================================================
+            // 🛡️ LOOPHOLE 5 FIX: Strict 8-Decimal Floating Point Enforcement
+            // ===============================================================
+            const numericAmount = parseFloat(Number(amount).toFixed(8));
+            if (isNaN(numericAmount) || numericAmount <= 0) {
+                throw new Error("Invalid transaction amount.");
+            }
+            const sompiAmount = BigInt(Math.round(numericAmount * 100000000));
             const generator = new kaspa.Generator({
                 entries,
                 outputs: [
                     {
                         address: toAddress,
-                        amount: BigInt(Math.round(amount * 100000000)),
+                        amount: sompiAmount,
                     },
                 ],
                 changeAddress: senderAddress,
-                priorityFee: BigInt(0),
+                priorityFee: priorityFeeSompi,
                 networkId: NETWORK,
             });
             let txid = "";
@@ -123,10 +126,7 @@ exports.KaspaService = {
                 const pending = await generator.next();
                 if (!pending)
                     break;
-                const utxoEntries = pending.getUtxoEntries();
-                for (let i = 0; i < utxoEntries.length; i++) {
-                    pending.signInput(i, privateKey);
-                }
+                pending.sign([privateKey]);
                 txid = await pending.submit(rpc);
             }
             return txid;
@@ -138,25 +138,21 @@ exports.KaspaService = {
             catch { }
         }
     },
-    /**
-     * High-level wrapper for phone-to-phone or phone-to-external transactions.
-     * Decrypts mnemonic securely in ephemeral memory and executes sendKAS.
-     */
-    sendExternalTransaction: async (senderEncryptedMnemonic, recipientAddress, amountKas) => {
+    sendExternalTransaction: async (senderEncryptedMnemonic, recipientAddress, amountKas, priorityFeeSompi) => {
         try {
-            // 1. Decrypt user's mnemonic seed phrase
-            const rawMnemonic = (0, crypto_utils_1.decryptMnemonic)(senderEncryptedMnemonic, process.env.ENCRYPTION_KEY || "");
-            // 2. Validate address prefix matching current environment
+            const encryptionKey = process.env.ENCRYPTION_KEY;
+            if (!encryptionKey) {
+                throw new Error("ENCRYPTION_KEY is missing from environment.");
+            }
+            const rawMnemonic = (0, crypto_utils_1.decryptMnemonic)(senderEncryptedMnemonic, encryptionKey);
             const isMainnet = recipientAddress.toLowerCase().startsWith("kaspa:");
-            const isTestnet = recipientAddress.toLowerCase().startsWith("kasptest:");
-            if (!isMainnet && !isTestnet) {
+            if (!isMainnet && NETWORK === "mainnet") {
                 return {
                     success: false,
-                    error: "Invalid Kaspa address format. Address must start with 'kaspa:' or 'kasptest:'.",
+                    error: "Invalid address format. Mainnet addresses must start with 'kaspa:'.",
                 };
             }
-            // 3. Broadcast transaction using kaspa-wasm RPC generator
-            const txId = await exports.KaspaService.sendKAS(rawMnemonic, recipientAddress, amountKas);
+            const txId = await exports.KaspaService.sendKAS(rawMnemonic, recipientAddress, amountKas, priorityFeeSompi || DEFAULT_PRIORITY_FEE);
             console.log(`[Kaspa On-Chain TX] Sent ${amountKas} KAS to ${recipientAddress} | TXID: ${txId}`);
             return {
                 success: true,

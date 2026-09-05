@@ -11,8 +11,8 @@ const connectDB = async () => {
         if (!uri) {
             throw new Error('MONGODB_URI environment variable is not set');
         }
-        await mongoose_1.default.connect(uri, { dbName: 'kasapp2' });
-        console.log('MongoDB connected to:', uri.split('@')[1], '- database: kasapp2');
+        await mongoose_1.default.connect(uri, { dbName: 'kasapp' });
+        console.log('MongoDB connected to:', uri.split('@')[1], '- database: kasapp');
     }
     catch (error) {
         console.error('MongoDB failed to connect:', error);

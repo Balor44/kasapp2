@@ -9,29 +9,33 @@ const crypto_1 = __importDefault(require("crypto"));
 // Excludes visually confusing characters: 0/O, 1/I/L
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 /**
- * Generates a random voucher code in the format XXXX-XXXX-XXXX (12 chars, grouped).
- * Uses crypto.randomInt for cryptographically secure randomness — voucher codes
- * are effectively bearer cash, so they must not be predictable or brute-forceable.
+ * Generates a random voucher code in the format KASP-XXXX-XXXX-XXXX-XXXX
+ * Uses cryptographically secure randomness.
  */
 function generateVoucherCode() {
-    let raw = '';
-    for (let i = 0; i < 12; i++) {
-        raw += ALPHABET[crypto_1.default.randomInt(0, ALPHABET.length)];
+    const segments = [];
+    // Generate 4 segments of 4 characters each
+    for (let i = 0; i < 4; i++) {
+        let segment = '';
+        for (let j = 0; j < 4; j++) {
+            const randomIndex = crypto_1.default.randomInt(0, ALPHABET.length);
+            segment += ALPHABET[randomIndex];
+        }
+        segments.push(segment);
     }
-    return raw.match(/.{1,4}/g).join('-');
+    // Don't forget the closing backtick!
+    return `KASP-${segments.join('-')}`;
 }
 /**
- * Reconstructs a canonical XXXX-XXXX-XXXX code from whatever a user actually typed.
- * Strips anything that isn't a letter or digit — handles missing hyphens, stray
- * spaces, and mobile keyboards that autocorrect "-" into an en dash or similar —
- * then re-groups and re-hyphenates to match the stored format exactly.
+ * Reconstructs a canonical code from whatever a user actually typed.
  */
 function normalizeVoucherCode(input) {
-    const cleaned = input.trim().toUpperCase();
-    // If it already starts with KASP-, return it cleaned of markdown
+    // 1. Strip whitespace, uppercase, AND remove markdown all at once
+    const cleaned = input.trim().toUpperCase().replace(/[*_~]/g, '');
+    // 2. Now check if it has the prefix
     if (cleaned.startsWith('KASP-')) {
-        return cleaned.replace(/[*_~]/g, '');
+        return cleaned;
     }
-    // If someone typed it without KASP-, prepend it
-    return `KASP-${cleaned.replace(/[*_~]/g, '')}`;
+    // 3. Prepend if missing
+    return `KASP-${cleaned}`;
 }

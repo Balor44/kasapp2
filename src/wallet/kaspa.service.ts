@@ -108,7 +108,10 @@ export const KaspaService = {
       }
 
 
-      const numericAmount = Number(amount);
+      // ===============================================================
+      // 🛡️ LOOPHOLE 5 FIX: Strict 8-Decimal Floating Point Enforcement
+      // ===============================================================
+      const numericAmount = parseFloat(Number(amount).toFixed(8));
       if (isNaN(numericAmount) || numericAmount <= 0) {
         throw new Error("Invalid transaction amount.");
       }
