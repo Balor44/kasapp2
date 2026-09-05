@@ -467,11 +467,37 @@ router.post(
             }
 
 
-            // ---------------------------------------------------------------
+           // ---------------------------------------------------------------
             // STEP D: IDLE STATE -> AI INTENT PARSER
             // ---------------------------------------------------------------
             const parsed = await parseWhatsAppMessage(textBody);
             console.log(`[AI Intent Result]`, parsed);
+
+
+            if (parsed.intent === 'GET_ADDRESS') {
+              if (user?.walletAddress) {
+                await WhatsAppService.sendMessage(
+                  senderPhone,
+                  `Here is your personal Kasapp deposit address! 👇\n\n\`${user.walletAddress}\`\n\n💡 *Tip: Tap and hold the address above to copy it. Only send native KAS to this address.*`
+                );
+              } else {
+                await WhatsAppService.sendMessage(senderPhone, "We couldn't find your wallet address. Please contact support.");
+              }
+              continue;
+            }
+
+
+            if (parsed.intent === 'GET_SECRET_PHRASE') {
+              if (user?.mnemonic) {
+                await WhatsAppService.sendMessage(
+                  senderPhone,
+                  `🚨 *Security Warning:* Never share this recovery phrase with anyone. Anyone with these words can steal your funds.\n\nSecret Phrase (Encrypted/Raw):\n\`${user.mnemonic}\`\n\n💡 *Write it down offline and delete this message immediately.*`
+                );
+              } else {
+                await WhatsAppService.sendMessage(senderPhone, "We couldn't find a secret phrase linked to this account.");
+              }
+              continue;
+            }
 
 
             if (parsed.intent === 'SET_PIN') {
@@ -591,9 +617,9 @@ router.post(
 
 
               await WhatsAppService.sendMessage(senderPhone, `🔄 Fetching live data plans for ${provider}...`);
-              
+             
               const planResult = await VtpassService.getDataVariations(provider);
-              
+             
               if (!planResult.success || !planResult.variations?.length) {
                 await WhatsAppService.sendMessage(senderPhone, `❌ Could not load ${provider} data plans right now. Please try again later.`);
                 continue;
@@ -601,22 +627,22 @@ router.post(
 
 
               const availablePlans = planResult.variations.slice(0, 20);
-              
+             
               let messageText = `📡 *Select a ${provider} Data Plan*\n\nReply with the *number* of the plan you want:\n\n`;
-              
+             
               availablePlans.forEach((plan: any, index: number) => {
                 messageText += `*${index + 1}.* ${plan.name} - ₦${plan.variation_amount}\n`;
               });
 
 
-              await saveUserState(senderPhone, { 
-                step: 'AWAITING_DATA_PLAN', 
-                intent: 'BUY_DATA', 
-                provider: provider, 
+              await saveUserState(senderPhone, {
+                step: 'AWAITING_DATA_PLAN',
+                intent: 'BUY_DATA',
+                provider: provider,
                 targetPhone: targetPhone,
                 availableDataPlans: availablePlans
               });
-              
+             
               await WhatsAppService.sendMessage(senderPhone, messageText);
               continue;
             }
@@ -657,12 +683,22 @@ router.post(
             }
 
 
-            const reply = parsed.conversationalReply || 'Welcome to Kasapp! How can I help you today?';
-            await WhatsAppService.sendInteractiveButtons(senderPhone, reply, [
-              { id: 'menu_send', title: '💸 Send KAS' },
-              { id: 'menu_bills', title: '📱 Pay Bills' },
-              { id: 'menu_wallet', title: '🔐 Wallet' },
-            ]);
+            // ===============================================================
+            // FALLBACK / CHAT / HELP ROUTING
+            // ===============================================================
+            const reply = parsed.conversationalReply || "I'm here to help! You can check your balance, view your deposit address, send KAS, or pay bills. What would you like to do?";
+            
+            // If the user is just chatting (CHAT intent), don't spam them with the interactive buttons, just text back naturally.
+            if (parsed.intent === 'CHAT') {
+              await WhatsAppService.sendMessage(senderPhone, reply);
+            } else {
+              // For HELP, UNKNOWN, or missing intents, provide the conversational reply WITH the quick-action buttons.
+              await WhatsAppService.sendInteractiveButtons(senderPhone, reply, [
+                { id: 'menu_send', title: '💸 Send KAS' },
+                { id: 'menu_bills', title: '📱 Pay Bills' },
+                { id: 'menu_wallet', title: '🔐 Wallet' },
+              ]);
+            }
           }
         }
       }
@@ -674,3 +710,5 @@ router.post(
 
 
 export default router;
+
+

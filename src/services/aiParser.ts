@@ -8,7 +8,7 @@ dotenv.config();
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 
 
-// Pointing the OpenAI SDK directly to Groq's blazing fast servers
+// Pointing the OpenAI SDK directly to Groq's high-speed API
 const openai = new OpenAI({
   apiKey: GROQ_API_KEY,
   baseURL: "https://api.groq.com/openai/v1"
@@ -18,23 +18,26 @@ const openai = new OpenAI({
 export interface IntentResponse {
   intent:
     | "BALANCE"
+    | "GET_ADDRESS"
+    | "GET_SECRET_PHRASE"
     | "SEND_KAS"
     | "BUY_AIRTIME"
     | "BUY_DATA"
     | "PAY_ELECTRICITY"
+    | "BUY_TV"
     | "REDEEM_VOUCHER"
     | "SET_PIN"
     | "HELP"
-    | "BUY_TV"
+    | "CHAT"
     | "UNKNOWN";
   amount?: number | null;
   recipient?: string | null;
   provider?: string | null;
-  targetPhone?: string | null; // <--- ADDED: To capture third-party recharges
+  targetPhone?: string | null;
   voucherCode?: string | null;
   pin?: string | null;
   meterNumber?: string | null;
-  smartcardNumber?: string | null; 
+  smartcardNumber?: string | null;
   confidence: number;
   conversationalReply?: string | null;
 }
@@ -43,83 +46,105 @@ export interface IntentResponse {
 export async function parseWhatsAppMessage(userMessage: string): Promise<IntentResponse> {
   if (!GROQ_API_KEY) {
     console.error("[Kasapp AI Parser] GROQ_API_KEY is missing.");
-    return { intent: "UNKNOWN", confidence: 0 };
+    return {
+      intent: "UNKNOWN",
+      confidence: 0,
+      conversationalReply: "Sorry, our AI service is currently unavailable. Please try again shortly."
+    };
   }
 
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "openai/gpt-oss-20b", // Standard fast groq model (feel free to change back if you had a specific alias)
+      // You can use 'llama-3.3-70b-versatile' or 'llama-3.1-8b-instant' on Groq
+      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
       messages: [
         {
           role: "system",
-          content: `You are Kasapp, a conversational, witty AI assistant for a Kaspa crypto wallet in Nigeria.
-          Your job is to classify user intent and generate context-aware conversational replies.
+          content: `You are Kasapp, an intelligent, conversational financial assistant for a Kaspa (KAS) wallet built for Africa on WhatsApp.
 
 
-          ALLOWED INTENTS:
-          - "BALANCE": User wants to check their wallet balance.
-          - "REDEEM_VOUCHER": User wants to redeem a Kaspa voucher. Extract the code into 'voucherCode' (e.g., 'KASP-XYZ123').
-          - "SEND_KAS": User wants to send/transfer Kaspa (KAS). Extract "amount" (number) and "recipient".
-          - "BUY_AIRTIME": User wants to buy airtime. Extract "amount" (number), "provider" (e.g., MTN, GLO), and IF they specify a phone number to send it to, extract it as "targetPhone".
-          - "BUY_DATA": User wants to buy internet data. Extract "amount" (number), "provider", and IF they specify a phone number, extract it as "targetPhone".
-          - "PAY_ELECTRICITY": User wants to pay electricity bill. Extract "amount", "provider" (e.g., IKEDC), and "meterNumber".
-          - "SET_PIN": User wants to create or update their security PIN. Extract "pin" (string of 4-6 digits).
-          - "BUY_TV": User wants to pay for cable TV. Extract "amount", "provider" (e.g., DSTV, GOTV), and "smartcardNumber".
-          - "HELP": User greets, makes small talk, or asks for help.
-          - "UNKNOWN": Message is completely unrelated.
+TONE & STYLE:
+- Warm, polite, concise, and modern pan-African English.
+- Avoid forced local slang or heavy pidgin so the experience is natural across Nigeria, Ghana, Kenya, South Africa, and beyond.
+- Keep responses short and conversational (1 to 2 sentences max) suited for WhatsApp.
 
 
-           DYNAMIC CONVERSATIONAL RULES:
-          - For "HELP" or greetings, generate a fresh, varied response in natural Nigerian-English/Pidgin matching the user's energy. Keep it under 2 sentences.
+ALLOWED INTENTS:
+- "GET_ADDRESS": User wants their Kaspa wallet deposit/receiving address or QR code (e.g., "what's my wallet address", "how do I deposit", "receive KAS", "show my address").
+- "GET_SECRET_PHRASE": User asks for their recovery phrase, seed phrase, or private key (e.g., "what's my secret phrase", "show my seed", "view private key").
+- "BALANCE": User wants to check their wallet balance.
+- "SEND_KAS": User wants to send/transfer Kaspa. Extract "amount" (number) and "recipient" (phone number, KNS domain like name.kas, or kaspa: address).
+- "BUY_AIRTIME": User wants airtime. Extract "amount" (number), "provider" (e.g., MTN, Airtel, Glo), and "targetPhone" if specified.
+- "BUY_DATA": User wants internet data. Extract "amount" (number), "provider", and "targetPhone" if specified.
+- "PAY_ELECTRICITY": User wants electricity tokens. Extract "amount", "provider", and "meterNumber".
+- "BUY_TV": User wants cable TV subscription. Extract "amount", "provider" (e.g., DSTV, GOtv), and "smartcardNumber".
+- "REDEEM_VOUCHER": User wants to redeem a voucher. Extract code into 'voucherCode' (e.g., 'KASP-XXXX-XXXX').
+- "SET_PIN": User wants to set or reset security PIN. Extract 'pin' (4-6 digits).
+- "HELP": User explicitly asks for instructions, guidance, or menu commands.
+- "CHAT": User greets, makes small talk, asks questions about Kasapp, or enters text that does not trigger a direct financial transaction.
+- "UNKNOWN": Completely unintelligible text or foreign characters.
 
 
-          Return strict JSON:
-          {
-            "intent": "BALANCE" | "SEND_KAS" | "BUY_AIRTIME" | "BUY_DATA" | "PAY_ELECTRICITY" | "REDEEM_VOUCHER" | "SET_PIN" | "BUY_TV" | "HELP" | "UNKNOWN",
-            "amount": number | null,
-            "recipient": string | null,
-            "provider": string | null,
-            "targetPhone": string | null,
-            "meterNumber": string | null,
-            "smartcardNumber": string | null,
-            "confidence": number,
-            "conversationalReply": string | null,
-            "pin": string | null,
-            "voucherCode": string | null
-           }`
+CONVERSATIONAL RULES:
+- ALWAYS generate a high-quality "conversationalReply".
+- If the user greets or makes small talk ("CHAT"), respond naturally and mention what Kasapp can do (e.g., "Hello! I can help you send KAS, check your balance, view your deposit address, or pay utility bills. What would you like to do?").
+- If the intent is unclear, ask a helpful clarifying question instead of sending a generic error.
+- If missing details for a transaction (e.g., "send KAS" without amount or recipient), use "conversationalReply" to ask for the missing parameters.
+
+
+Return STRICT JSON matching this structure:
+{
+  "intent": "GET_ADDRESS" | "GET_SECRET_PHRASE" | "BALANCE" | "SEND_KAS" | "BUY_AIRTIME" | "BUY_DATA" | "PAY_ELECTRICITY" | "BUY_TV" | "REDEEM_VOUCHER" | "SET_PIN" | "HELP" | "CHAT" | "UNKNOWN",
+  "amount": number | null,
+  "recipient": string | null,
+  "provider": string | null,
+  "targetPhone": string | null,
+  "meterNumber": string | null,
+  "smartcardNumber": string | null,
+  "pin": string | null,
+  "voucherCode": string | null,
+  "confidence": number,
+  "conversationalReply": string
+}`
         },
         {
           role: "user",
-          content: `Extract intent and parameters from this: "${userMessage}"`
+          content: userMessage
         }
       ],
       response_format: { type: "json_object" },
-      temperature: 0.1
+      temperature: 0.2
     });
 
 
     const content = completion?.choices?.[0]?.message?.content;
-    
+   
     if (!content) {
       console.error(`[Kasapp AI Parser] Empty response from Groq.`);
-      return { intent: "UNKNOWN", confidence: 0 };
+      return { 
+        intent: "UNKNOWN", 
+        confidence: 0,
+        conversationalReply: "I didn't quite catch that. Could you please rephrase?"
+      };
     }
 
 
-    console.log(`[Kasapp AI Parser] Raw AI Output:`, content);
-      
     const cleanContent = content.replace(/```json/gi, '').replace(/```/gi, '').trim();
     const parsed = JSON.parse(cleanContent) as IntentResponse;
-      
+     
     if (parsed.intent) parsed.intent = parsed.intent.toUpperCase() as any;
-      
+     
     return parsed;
-    
+   
   } catch (error: any) {
     console.error(`[Kasapp AI Parser] Fatal API Error:`, error?.response?.data || error?.message || error);
+    return { 
+      intent: "UNKNOWN", 
+      confidence: 0,
+      conversationalReply: "Something went wrong while processing your request. Please try again."
+    };
   }
-
-
-  return { intent: "UNKNOWN", confidence: 0 };
 }
+
+
