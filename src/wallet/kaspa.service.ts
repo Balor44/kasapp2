@@ -7,9 +7,13 @@ import * as kaspa from "kaspa-wasm";
 import { encryptMnemonic, decryptMnemonic } from "../utils/crypto.utils";
 
 
-// Defaults to mainnet if not specified in .env
 const NETWORK = process.env.KASPA_NETWORK || "mainnet";
 const DERIVATION_PATH = "m/44'/111111'/0'/0/0";
+
+
+// Default priority fee in Sompi (1 KAS = 100,000,000 Sompi). 
+// 10,000 Sompi = 0.0001 KAS (ensures rapid inclusion by mainnet validators)
+const DEFAULT_PRIORITY_FEE = BigInt(process.env.KASPA_PRIORITY_FEE_SOMPI || "10000");
 
 
 export const KaspaService = {
@@ -26,8 +30,13 @@ export const KaspaService = {
 
 
   createEncryptedWallet: async (): Promise<{ address: string; encryptedSeed: string }> => {
+    const encryptionKey = process.env.ENCRYPTION_KEY;
+    if (!encryptionKey) {
+      throw new Error("[KaspaService] Cannot create encrypted wallet: ENCRYPTION_KEY is not defined in environment.");
+    }
+
+
     const { publicKey, secret } = await KaspaService.generateWallet();
-    const encryptionKey = process.env.ENCRYPTION_KEY || "";
     const encryptedSeed = encryptMnemonic(secret, encryptionKey);
 
 
@@ -52,7 +61,6 @@ export const KaspaService = {
 
 
       const totalSompi = entries.reduce((sum: bigint, utxo: any) => {
-        // Safely extract amount regardless of the kaspa-wasm version structure
         const amount = utxo.utxoEntry ? utxo.utxoEntry.amount : utxo.amount;
         return sum + BigInt(amount || 0);
       }, BigInt(0));
@@ -75,7 +83,8 @@ export const KaspaService = {
   sendKAS: async (
     fromMnemonic: string,
     toAddress: string,
-    amount: number | string // Accept strings just in case the AI parser forgets to cast
+    amount: number | string,
+    priorityFeeSompi: bigint = DEFAULT_PRIORITY_FEE
   ) => {
     const senderAddress = deriveAddress(fromMnemonic);
     const privateKey = derivePrivateKey(fromMnemonic);
@@ -99,7 +108,6 @@ export const KaspaService = {
       }
 
 
-      // 1. FORCE STRICT NUMERIC PARSING (Fixes NaN or string concatenation bugs)
       const numericAmount = Number(amount);
       if (isNaN(numericAmount) || numericAmount <= 0) {
         throw new Error("Invalid transaction amount.");
@@ -107,7 +115,6 @@ export const KaspaService = {
       const sompiAmount = BigInt(Math.round(numericAmount * 100000000));
 
 
-      // 2. GENERATOR UPGRADE
       const generator = new kaspa.Generator({
         entries,
         outputs: [
@@ -117,7 +124,7 @@ export const KaspaService = {
           },
         ],
         changeAddress: senderAddress,
-        priorityFee: BigInt(0),
+        priorityFee: priorityFeeSompi,
         networkId: NETWORK,
       });
 
@@ -130,10 +137,7 @@ export const KaspaService = {
         if (!pending) break;
 
 
-        // 3. MODERN NATIVE BATCH SIGNING
         pending.sign([privateKey]);
-
-
         txid = await pending.submit(rpc);
       }
 
@@ -150,28 +154,34 @@ export const KaspaService = {
   sendExternalTransaction: async (
     senderEncryptedMnemonic: string,
     recipientAddress: string,
-    amountKas: number | string
+    amountKas: number | string,
+    priorityFeeSompi?: bigint
   ): Promise<{ success: boolean; txId?: string; error?: string }> => {
     try {
-      const rawMnemonic = decryptMnemonic(
-        senderEncryptedMnemonic,
-        process.env.ENCRYPTION_KEY || ""
-      );
+      const encryptionKey = process.env.ENCRYPTION_KEY;
+      if (!encryptionKey) {
+        throw new Error("ENCRYPTION_KEY is missing from environment.");
+      }
 
 
-      // STRICT MAINNET VALIDATION
+      const rawMnemonic = decryptMnemonic(senderEncryptedMnemonic, encryptionKey);
+
+
       const isMainnet = recipientAddress.toLowerCase().startsWith("kaspa:");
-
-
-      if (!isMainnet) {
+      if (!isMainnet && NETWORK === "mainnet") {
         return {
           success: false,
-          error: "Invalid address format. Mainnet addresses must strictly start with 'kaspa:'.",
+          error: "Invalid address format. Mainnet addresses must start with 'kaspa:'.",
         };
       }
 
 
-      const txId = await KaspaService.sendKAS(rawMnemonic, recipientAddress, amountKas);
+      const txId = await KaspaService.sendKAS(
+        rawMnemonic,
+        recipientAddress,
+        amountKas,
+        priorityFeeSompi || DEFAULT_PRIORITY_FEE
+      );
 
 
       console.log(`[Kaspa On-Chain TX] Sent ${amountKas} KAS to ${recipientAddress} | TXID: ${txId}`);
@@ -206,3 +216,5 @@ function deriveAddress(mnemonic: string): string {
   const keypair = privateKey.toKeypair();
   return keypair.toAddress(NETWORK).toString();
 }
+
+
