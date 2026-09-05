@@ -11,7 +11,7 @@ import { KaspaService } from '../wallet/kaspa.service';
 import { KnsService } from '../services/kns.service';
 import { ReceiptService } from '../services/receipt.service';
 import { VtpassService } from '../services/vtpass.service';
-import { PriceService } from '../services/price.service'; 
+import { PriceService } from '../services/price.service';
 
 
 const router = Router();
@@ -99,24 +99,34 @@ router.post(
 
 
           // -----------------------------------------------------------------
-          // 🔘 INTERACTIVE BUTTON CLICK HANDLER
+          // 🔘 INTERACTIVE BUTTON & LIST MENU CLICK HANDLER
           // -----------------------------------------------------------------
           if (message.type === 'interactive') {
-            const buttonId = message.interactive.button_reply?.id;
-            console.log(`[Button Clicked] ${senderPhone} selected: ${buttonId}`);
+            const buttonId = message.interactive.button_reply?.id || message.interactive.list_reply?.id;
+            console.log(`[Menu Clicked] ${senderPhone} selected: ${buttonId}`);
 
 
             let command = '';
+            
+            // Map the menu IDs to text commands so the AI/Chatbot processes them naturally
             if (buttonId === 'menu_wallet') command = '/balance';
             if (buttonId === 'menu_send') command = '/help send';
             if (buttonId === 'menu_bills') command = '/help bills';
+            if (buttonId === 'menu_deposit') command = "What is my wallet address";
+            if (buttonId === 'menu_phrase') command = "What is my secret phrase";
+            if (buttonId === 'menu_airtime') command = "Buy airtime";
+            if (buttonId === 'menu_data') command = "Buy data";
+            if (buttonId === 'menu_electricity') command = "Pay electricity";
+            if (buttonId === 'menu_tv') command = "Pay tv";
 
 
             if (command) {
-              const resultMsg = await ChatbotService.processIncomingMessage(senderPhone, command);
-              await WhatsAppService.sendMessage(senderPhone, resultMsg);
+              // Convert the interactive click into a standard text message for the parser below
+              message.type = 'text';
+              message.text = { body: command };
+            } else {
+              continue; // If unknown button, ignore
             }
-            continue;
           }
 
 
@@ -255,7 +265,7 @@ router.post(
 
               const displayTarget = userState.targetPhone === senderPhone ? 'this line' : `\`${userState.targetPhone}\``;
               await WhatsAppService.sendMessage(
-                senderPhone, 
+                senderPhone,
                 `Purchase *${selectedPlan.name}* (₦${selectedPlan.variation_amount}) for ${displayTarget}.\n\nPlease reply with your *Transaction PIN* to confirm:`
               );
               continue;
@@ -342,14 +352,14 @@ router.post(
 
                   await clearUserState(senderPhone);
                  
-                  // 1. Send receipt to Sender
+                  // Send receipt to Sender (retaining the 3 simple buttons for quick actions post-transaction)
                   await WhatsAppService.sendInteractiveButtons(senderPhone, beautifulReceipt, [
                     { id: 'menu_wallet', title: '🔐 Check Balance' },
                     { id: 'menu_send', title: '💸 Send Again' }
                   ]);
 
 
-                  // 2. Receiver Credit Alert
+                  // Receiver Credit Alert
                   try {
                     const receiver = await UserModel.findOne({ phone: targetRecipient })
                                   || await UserModel.findOne({ walletAddress: targetRecipient })
@@ -382,7 +392,7 @@ router.post(
                 }
               }
              
-              // --- EXECUTION: UTILITY BILLS (LIVE VTPASS + LIVE ORACLE) ---
+              // --- EXECUTION: UTILITY BILLS ---
                if (userState.intent && ['BUY_AIRTIME', 'BUY_DATA', 'PAY_ELECTRICITY', 'BUY_TV'].includes(userState.intent as string)) {
                 const amountNgn = Number(userState.amount);
                 const provider = userState.provider || 'MTN';
@@ -409,10 +419,8 @@ router.post(
 
                 await WhatsAppService.sendMessage(senderPhone, `📉 Live Rate: 1 KAS = ₦${spreadRate.toFixed(2)}\n🔄 Deducting *${kasCost} KAS* (₦${amountNgn}) for ${provider}...`);
                
-                // const operatorAddress = (process.env.OPERATOR_WALLET_ADDRESS || '').replace(/["']/g, '').trim();
-                // const paymentResult = await KaspaService.sendExternalTransaction(user.mnemonic, operatorAddress, kasCost);
-               
-                const paymentResult: any = { success: true, txId: 'SIMULATED_TEST_TX' }; 
+                // Simulated transaction block (replace with actual KaspaService external tx when ready)
+                const paymentResult: any = { success: true, txId: 'SIMULATED_TEST_TX' };
 
 
                 if (!paymentResult.success) {
@@ -467,7 +475,7 @@ router.post(
             }
 
 
-           // ---------------------------------------------------------------
+            // ---------------------------------------------------------------
             // STEP D: IDLE STATE -> AI INTENT PARSER
             // ---------------------------------------------------------------
             const parsed = await parseWhatsAppMessage(textBody);
@@ -491,7 +499,7 @@ router.post(
               if (user?.mnemonic) {
                 await WhatsAppService.sendMessage(
                   senderPhone,
-                  `🚨 *Security Warning:* Never share this recovery phrase with anyone. Anyone with these words can steal your funds.\n\nSecret Phrase (Encrypted/Raw):\n\`${user.mnemonic}\`\n\n💡 *Write it down offline and delete this message immediately.*`
+                  `🚨 *Security Warning:* Never share this recovery phrase with anyone. Anyone with these words can steal your funds.\n\nSecret Phrase:\n\`${user.mnemonic}\`\n\n💡 *Write it down offline and delete this message immediately.*`
                 );
               } else {
                 await WhatsAppService.sendMessage(senderPhone, "We couldn't find a secret phrase linked to this account.");
@@ -686,18 +694,46 @@ router.post(
             // ===============================================================
             // FALLBACK / CHAT / HELP ROUTING
             // ===============================================================
-            const reply = parsed.conversationalReply || "I'm here to help! You can check your balance, view your deposit address, send KAS, or pay bills. What would you like to do?";
+            const reply = parsed.conversationalReply || "I'm here to help! What would you like to do today?";
             
-            // If the user is just chatting (CHAT intent), don't spam them with the interactive buttons, just text back naturally.
             if (parsed.intent === 'CHAT') {
+              // Just a normal text reply for casual conversation
               await WhatsAppService.sendMessage(senderPhone, reply);
             } else {
-              // For HELP, UNKNOWN, or missing intents, provide the conversational reply WITH the quick-action buttons.
-              await WhatsAppService.sendInteractiveButtons(senderPhone, reply, [
-                { id: 'menu_send', title: '💸 Send KAS' },
-                { id: 'menu_bills', title: '📱 Pay Bills' },
-                { id: 'menu_wallet', title: '🔐 Wallet' },
-              ]);
+              // For HELP or UNKNOWN, present the comprehensive List Menu drawer
+              const menuSections = [
+                {
+                  title: "Wallet & Transfers",
+                  rows: [
+                    { id: 'menu_wallet', title: '🔐 Check Balance', description: 'View available KAS' },
+                    { id: 'menu_deposit', title: '📥 Deposit KAS', description: 'Get your wallet address' },
+                    { id: 'menu_send', title: '💸 Send KAS', description: 'Transfer to phone or address' }
+                  ]
+                },
+                {
+                  title: "Utility Bills",
+                  rows: [
+                    { id: 'menu_airtime', title: '📱 Buy Airtime' },
+                    { id: 'menu_data', title: '🌐 Buy Data' },
+                    { id: 'menu_electricity', title: '💡 Pay Electricity' },
+                    { id: 'menu_tv', title: '📺 Cable TV' }
+                  ]
+                },
+                {
+                  title: "Security",
+                  rows: [
+                    { id: 'menu_phrase', title: '🔑 Secret Phrase', description: 'View your recovery seed' }
+                  ]
+                }
+              ];
+
+
+              await WhatsAppService.sendInteractiveList(
+                senderPhone, 
+                reply, 
+                "Open Menu ☰",
+                menuSections
+              );
             }
           }
         }

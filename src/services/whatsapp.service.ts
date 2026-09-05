@@ -65,8 +65,7 @@ export const WhatsAppService = {
 
 
   /**
-   * Sends a Xara-style interactive message with clickable buttons.
-   * Note: Meta limits buttons to a maximum of 3, and titles to 20 characters.
+   * Sends a Xara-style interactive message with up to 3 clickable buttons.
    */
   sendInteractiveButtons: async (to: string, text: string, buttons: { id: string; title: string }[]): Promise<boolean> => {
     try {
@@ -74,7 +73,7 @@ export const WhatsAppService = {
         console.error('[WHATSAPP_ERROR] Missing credentials for interactive buttons');
         return false;
       }
-      
+     
       const recipient = formatForMetaApi(to);
 
 
@@ -97,9 +96,9 @@ export const WhatsAppService = {
           }
         },
         {
-          headers: { 
-            Authorization: `Bearer ${WHATSAPP_TOKEN}`, 
-            'Content-Type': 'application/json' 
+          headers: {
+            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+            'Content-Type': 'application/json'
           }
         }
       );
@@ -109,6 +108,53 @@ export const WhatsAppService = {
       return true;
     } catch (error: any) {
       console.error('[WHATSAPP_FAILED] Button Send Error:', error.response?.data || error.message);
+      return false;
+    }
+  },
+
+
+  /**
+   * Sends a List Message (Drawer Menu) with up to 10 options.
+   * Action button text is max 20 characters.
+   */
+  sendInteractiveList: async (to: string, text: string, buttonText: string, sections: { title: string, rows: { id: string, title: string, description?: string }[] }[]): Promise<boolean> => {
+    try {
+      if (!PHONE_NUMBER_ID || !WHATSAPP_TOKEN) {
+        console.error('[WHATSAPP_ERROR] Missing credentials for interactive list');
+        return false;
+      }
+     
+      const recipient = formatForMetaApi(to);
+
+
+      const response = await axios.post(
+        `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          to: recipient,
+          type: 'interactive',
+          interactive: {
+            type: 'list',
+            body: { text: text },
+            action: {
+              button: buttonText.substring(0, 20),
+              sections: sections
+            }
+          }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+
+      console.log(`[WHATSAPP_SUCCESS] Sent List Menu to: ${recipient}`);
+      return true;
+    } catch (error: any) {
+      console.error('[WHATSAPP_FAILED] List Menu Send Error:', error.response?.data || error.message);
       return false;
     }
   }
@@ -121,3 +167,5 @@ export const WhatsAppService = {
 export async function sendWhatsAppNotification(toPhone: string, message: string): Promise<boolean> {
   return await WhatsAppService.sendMessage(toPhone, message);
 }
+
+
