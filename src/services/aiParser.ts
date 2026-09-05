@@ -57,7 +57,8 @@ export async function parseWhatsAppMessage(userMessage: string): Promise<IntentR
   try {
     const completion = await openai.chat.completions.create({
       // You can use 'llama-3.3-70b-versatile' or 'llama-3.1-8b-instant' on Groq
-      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      model: process.env.GROQ_MODEL || "openai/gpt-oss-20b"
+,
       messages: [
         {
           role: "system",
