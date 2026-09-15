@@ -8,12 +8,13 @@ COPY package*.json ./
 COPY vendor ./vendor
 
 
-# 🛡️ FIX: Use npm install to bypass strict lockfile tarball hashes
+# Use npm install to bypass strict lockfile tarball hashes
 RUN npm install
 
 
-# Copy source code and build
+# Copy source code, config, and the Argent covenants!
 COPY tsconfig.json ./
+COPY contracts ./contracts
 COPY src ./src
 RUN npm run build
 
@@ -28,12 +29,13 @@ COPY package*.json ./
 COPY vendor ./vendor
 
 
-# 🛡️ FIX: Use npm install for production deps
+# Use npm install for production deps
 RUN npm install --omit=dev
 
 
-# Copy built artifacts from the builder stage
+# Copy built artifacts AND the covenant artifacts from the builder stage
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/contracts ./contracts
 
 
 # Expose the port Railway/Docker will use
