@@ -3,8 +3,9 @@ FROM node:24-alpine AS builder
 WORKDIR /app
 
 
-# Copy package files and install all dependencies (including devDependencies for TS)
+# 🛡️ FIX: Copy package files AND the local vendor folder before installing dependencies
 COPY package*.json ./
+COPY vendor ./vendor
 RUN npm ci
 
 
@@ -19,8 +20,9 @@ FROM node:24-alpine
 WORKDIR /app
 
 
-# Copy package files and install ONLY production dependencies
+# 🛡️ FIX: Copy package files AND the local vendor folder for the production install
 COPY package*.json ./
+COPY vendor ./vendor
 RUN npm ci --omit=dev
 
 
