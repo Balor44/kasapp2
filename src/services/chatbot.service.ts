@@ -14,10 +14,6 @@ import { VaultService } from '../wallet/vault.service';
 
 
 export const ChatbotService = {
-  /**
-   * Primary entry point for messages from WhatsApp.
-   * Passes messages directly to the parse engine.
-   */
   async processIncomingMessage(fromPhone: string, rawMessageText: string): Promise<string> {
     try {
       return await this.parse(fromPhone, rawMessageText);
@@ -34,9 +30,6 @@ export const ChatbotService = {
     const senderPhone = normalizePhone(phone);
 
 
-    // -------------------------------------------------------------
-    // 0. SELF-HEALING MULTI-FORMAT PHONE LOOKUP
-    // -------------------------------------------------------------
     const rawDigits = senderPhone.replace('+', '');
     const localFormat = rawDigits.startsWith('234') ? '0' + rawDigits.slice(3) : rawDigits;
     const internationalFormat = '+' + rawDigits;
@@ -51,11 +44,27 @@ export const ChatbotService = {
       user.phone = internationalFormat;
       await user.save();
     }
+    // 🛡️ LEDGER SYNC FIX: Reconcile MongoDB with the Kaspa Mainnet
+    // We only sync on financial commands to save RPC calls
+    if (user && user.walletAddress) {
+      const isFinancialCommand = ['/balance', 'balance', 'bal', '/send', '/voucher', '/airtime', '/data', '/electricity', '/cable', '/water', '/auto'].some(cmd => msg.startsWith(cmd));
+      
+      if (isFinancialCommand) {
+        try {
+          const onChainBalance = await KaspaService.getBalance(user.walletAddress);
+          // If mainnet disagrees with Mongo, mainnet wins
+          if (onChainBalance !== user.balance) {
+            user.balance = onChainBalance;
+            await user.save();
+            console.log(`[Ledger Sync] Updated ${user.phone} balance to ${onChainBalance} KAS`);
+          }
+        } catch (syncError) {
+          console.warn(`[Ledger Sync] Failed to sync ${user.phone} with mainnet. Falling back to DB ledger.`);
+        }
+      }
+    }
 
 
-    // -------------------------------------------------------------
-    // 1. RECURRING PAYMENTS / AUTO-RENEWAL ROUTER
-    // -------------------------------------------------------------
     const userState = await getUserState(senderPhone);
 
 
@@ -81,9 +90,6 @@ export const ChatbotService = {
     }
 
 
-    // -------------------------------------------------------------
-    // 2. STATE MACHINE HANDLER: PIN CHECK FOR SEED EXPORT
-    // -------------------------------------------------------------
     if (userState.step === 'AWAITING_EXPORT_PIN') {
       if (!user || !user.pin) {
         userState.step = '';
@@ -93,7 +99,7 @@ export const ChatbotService = {
 
 
       const isMatch = await bcrypt.compare(rawMsg, user.pin);
-      
+     
       if (!isMatch) {
         userState.step = '';
         await saveUserState(senderPhone, userState);
@@ -103,7 +109,7 @@ export const ChatbotService = {
 
       try {
         const rawMnemonic = decryptMnemonic(user.mnemonic, process.env.ENCRYPTION_KEY || '');
-        
+       
         userState.step = '';
         await saveUserState(senderPhone, userState);
 
@@ -127,18 +133,10 @@ export const ChatbotService = {
     }
 
 
-    // -------------------------------------------------------------
-    // 3. NATURAL LANGUAGE / NON-SLASH PATTERN MATCHING & SYNTHESIS
-    // -------------------------------------------------------------
-    
     if (!rawMsg.startsWith('/')) {
-      // Balance Alias
       if (['balance', 'bal', 'check balance', 'my balance', 'wallet'].includes(msg)) {
         return await ChatbotService.parse(phone, '/balance');
       }
-
-
-      // Help Alias
       if (msg.startsWith('help ') || msg.startsWith('menu ')) {
         const topic = msg.split(' ')[1];
         return await ChatbotService.parse(phone, `/help ${topic}`);
@@ -146,15 +144,11 @@ export const ChatbotService = {
       if (['help', 'commands', 'menu'].includes(msg)) {
         return await ChatbotService.parse(phone, '/help');
       }
-
-
-      // Export Seed Alias
       if (['export', 'export seed', 'backup', 'show seed'].includes(msg)) {
         return await ChatbotService.parse(phone, '/export');
       }
 
 
-      // Airtime Natural Synthesizer
       const airtimeRegex = /^(?:buy\s+)?airtime\s+(mtn|airtel|glo|9mobile)\s+(\+?\d{10,14})\s+(\d+)$/i;
       const airtimeMatch = rawMsg.match(airtimeRegex);
       if (airtimeMatch) {
@@ -163,7 +157,6 @@ export const ChatbotService = {
       }
 
 
-      // Data Natural Synthesizer
       const dataRegex = /^(?:buy\s+)?data\s+(mtn|airtel|glo|9mobile)\s+(\+?\d{10,14})\s+(\d+)$/i;
       const dataMatch = rawMsg.match(dataRegex);
       if (dataMatch) {
@@ -172,7 +165,6 @@ export const ChatbotService = {
       }
 
 
-      // Airtime-to-KAS Natural Synthesizer
       const airtimeToKasRegex = /^(?:convert\s+)?airtime\s+(?:to\s+kas\s+)?(mtn|airtel|glo|9mobile)\s+(\d+)$/i;
       const airtimeToKasMatch = rawMsg.match(airtimeToKasRegex);
       if (airtimeToKasMatch) {
@@ -181,7 +173,6 @@ export const ChatbotService = {
       }
 
 
-      // Send KAS Natural Synthesizer
       const sendRegex = /^(?:send|transfer)\s+([a-zA-Z0-9:+]+)\s+(\d+(?:\.\d+)?)$/i;
       const sendMatch = rawMsg.match(sendRegex);
       if (sendMatch) {
@@ -190,7 +181,6 @@ export const ChatbotService = {
       }
 
 
-      // Alternative Send Synthesizer
       const sendAltRegex = /^(?:send|transfer)\s+(\d+(?:\.\d+)?)\s*(?:kas)?\s*(?:to)?\s*([a-zA-Z0-9:+]+)$/i;
       const sendAltMatch = rawMsg.match(sendAltRegex);
       if (sendAltMatch) {
@@ -199,7 +189,6 @@ export const ChatbotService = {
       }
 
 
-      // Create Voucher Natural Synthesizer
       const createVoucherRegex = /^(?:create\s+)?voucher\s+(\d+(?:\.\d+)?)$/i;
       const createVoucherMatch = rawMsg.match(createVoucherRegex);
       if (createVoucherMatch) {
@@ -208,7 +197,6 @@ export const ChatbotService = {
       }
 
 
-      // Redeem Voucher Natural Synthesizer
       const redeemRegex = /^(?:redeem|claim)\s+.*?(KASP-[a-zA-Z0-9-]+)/i;
       const redeemMatch = rawMsg.match(redeemRegex);
       if (redeemMatch) {
@@ -218,7 +206,6 @@ export const ChatbotService = {
       }
 
 
-      // Electricity Natural Synthesizer
       const elecRegex = /^(?:pay\s+)?electricity\s+(ikedc|ekedc|aedc|kedco|phed|ibedc|eedc|kaedco|jed|bedc|yedc)\s+(\d+)\s+(\d+)$/i;
       const elecMatch = rawMsg.match(elecRegex);
       if (elecMatch) {
@@ -227,7 +214,6 @@ export const ChatbotService = {
       }
 
 
-      // Cable TV Natural Synthesizer
       const cableRegex = /^(?:pay\s+)?cable\s+(dstv|gotv|startimes|showmax)\s+(\d+)\s+(\d+)$/i;
       const cableMatch = rawMsg.match(cableRegex);
       if (cableMatch) {
@@ -236,7 +222,6 @@ export const ChatbotService = {
       }
 
 
-      // Water Bill Natural Synthesizer
       const waterRegex = /^(?:pay\s+)?water\s+([a-zA-Z]+)\s+(\d+)\s+(\d+)$/i;
       const waterMatch = rawMsg.match(waterRegex);
       if (waterMatch) {
@@ -246,21 +231,19 @@ export const ChatbotService = {
     }
 
 
-    // -------------------------------------------------------------
-    // 4. STANDARD COMMAND EXECUTORS
-    // -------------------------------------------------------------
     if (msg === 'hi' || msg === 'hello' || msg === 'start') {
       if (user) {
         return "Hey, welcome back! 👋\nYou've got " + user.balance.toFixed(4) + ' KAS sitting in your wallet.\n\nType *help* if you need a reminder of what I can do.';
       }
-      const { publicKey, secret } = await KaspaService.generateWallet();
+      // 🛡️ ENCRYPTED SEED FIX
+      const { address, encryptedSeed } = await KaspaService.createEncryptedWallet();
       user = await UserModel.create({
         phone: internationalFormat,
-        walletAddress: publicKey,
-        mnemonic: secret,
+        walletAddress: address,
+        mnemonic: encryptedSeed,
         balance: 0,
       });
-      return "Welcome to Kasapp! 🎉 I just set up a wallet for you.\n\nYour address:\n" + publicKey + "\n\n⚠️ Your recovery phrase (save this now — I won't show it again):\n" + secret + "\n\nAnyone with this phrase can access your funds, so keep it somewhere private and offline. Whenever you're ready, type *balance* to see your funds or *help* to see what I can do.";
+      return "Welcome to Kasapp! 🎉 I just set up a wallet for you.\n\nYour address:\n" + address + "\n\n⚠️ Your wallet is secured using AES encryption. Set a PIN via */setpin* to protect it.";
     }
 
 
@@ -270,82 +253,50 @@ export const ChatbotService = {
     }
 
 
-    // --- /setpin [4-6 digits] OR /setpin [old_pin] [new_pin] ---
     if (msg.startsWith('/setpin')) {
       const parts = rawMsg.split(' ');
-
-
       if (!user) {
         return "You'll need a wallet first — just say Hi and I'll get you set up.";
       }
-
-
-      // CASE 1: User ALREADY HAS a PIN
       if (user.pin) {
         const oldPinInput = parts[1];
         const newPinInput = parts[2];
-
-
         if (!oldPinInput || !newPinInput || !/^\d{4,6}$/.test(oldPinInput) || !/^\d{4,6}$/.test(newPinInput)) {
-          return (
-            '🔒 *Update Security PIN*\n\n' +
-            'Since you already have a PIN set, you must provide your current PIN first.\n\n' +
-            'Usage: */setpin [old_pin] [new_pin]*\n' +
-            'Example: */setpin 1234 9999*'
-          );
+          return '🔒 *Update Security PIN*\n\nUsage: */setpin [old_pin] [new_pin]*\nExample: */setpin 1234 9999*';
         }
-
-
         const isOldPinCorrect = await bcrypt.compare(oldPinInput, user.pin);
         if (!isOldPinCorrect) {
           return '❌ *Incorrect Current PIN.*\n\nPIN update rejected for your protection.';
         }
-
-
         const salt = await bcrypt.genSalt(10);
         const hashedNewPin = await bcrypt.hash(newPinInput, salt);
-
-
         await UserModel.updateOne({ phone: senderPhone }, { pin: hashedNewPin });
         return '🔒 *Security PIN Updated Successfully!*';
       }
 
 
-      // CASE 2: FIRST-TIME PIN CREATION
       const pinInput = parts[1];
-
-
       if (!pinInput || !/^\d{4,6}$/.test(pinInput)) {
         return '❌ *Invalid PIN Format*\n\nPIN must be 4 to 6 digits.\nExample: */setpin 4921*';
       }
-
-
       const salt = await bcrypt.genSalt(10);
       const hashedPin = await bcrypt.hash(pinInput, salt);
-
-
       await UserModel.updateOne({ phone: senderPhone }, { pin: hashedPin });
       return '🔒 *Security PIN Saved!*\n\nYour PIN is now active and required when revealing your recovery phrase.';
     }
 
 
-    // --- /export ---
     if (msg === '/export') {
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
-
-
       if (!user.pin) {
         return '⚠️ *Security PIN Required*\n\nYou must set a security PIN before viewing your secret recovery phrase.\n\nType: */setpin [4-6 digits]* to set your PIN first.';
       }
-
-
       userState.step = 'AWAITING_EXPORT_PIN';
       await saveUserState(senderPhone, userState);
       return '🔒 *Security Check*\n\nPlease reply with your 4-6 digit Security PIN to reveal your recovery phrase:';
     }
 
 
-    // --- /send [phone_or_address] [amount] ---
     if (msg.startsWith('/send')) {
       const parts = rawMsg.split(' ');
       const targetRecipient = parts[1];
@@ -353,105 +304,56 @@ export const ChatbotService = {
 
 
       if (!targetRecipient || !amountStr) {
-        return (
-          "Usage: *send [phone_or_address] [amount_kas]*\n\n" +
-          "• Global Transfer: `send +12025550123 10`\n" +
-          "• Local Transfer: `send 08012345678 10`\n" +
-          "• External Wallet: `send kaspa:qq123... 10`"
-        );
+        return "Usage: *send [phone_or_address] [amount_kas]*\n\n• Global Transfer: `send +12025550123 10`\n• Local Transfer: `send 08012345678 10`\n• External Wallet: `send kaspa:qq123... 10`";
       }
 
 
       const amount = parseFloat(amountStr);
-      if (isNaN(amount) || amount <= 0) {
-        return 'Please enter a valid KAS amount.';
-      }
+      if (isNaN(amount) || amount <= 0) return 'Please enter a valid KAS amount.';
+      if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
+      if (user.balance < amount) return `Insufficient balance. You have *${user.balance.toFixed(4)} KAS*.`;
 
 
-      if (!user) {
-        return "You'll need a wallet first — just say Hi and I'll get you set up.";
-      }
-
-
-      if (user.balance < amount) {
-        return `Insufficient balance. You have *${user.balance.toFixed(4)} KAS*.`;
-      }
-
-
-      // CASE A: EXTERNAL KASPA ADDRESS
       if (targetRecipient.toLowerCase().startsWith('kaspa:') || targetRecipient.toLowerCase().startsWith('kasptest:')) {
-        // [ON-CHAIN TRIGGER ENABLED]
         const txResult = await KaspaService.sendExternalTransaction(user.mnemonic, targetRecipient, amount);
-
-
-        if (!txResult.success) {
-          return `❌ *Transfer Failed:* ${txResult.error}`;
-        }
-
-
+        if (!txResult.success) return `❌ *Transfer Failed:* ${txResult.error}`;
+        
         user.balance -= amount;
         await user.save();
-
-
-        return (
-          `✅ *On-Chain Transfer Successful!*\n\n` +
-          `• *Sent:* ${amount} KAS\n` +
-          `• *Recipient:* \`${targetRecipient.slice(0, 12)}...${targetRecipient.slice(-6)}\`\n` +
-          `• *TXID:* \`${txResult.txId}\`\n\n` +
-          `💳 *New Balance:* ${user.balance.toFixed(4)} KAS`
-        );
+        return `✅ *On-Chain Transfer Successful!*\n\n• *Sent:* ${amount} KAS\n• *Recipient:* \`${targetRecipient.slice(0, 12)}...${targetRecipient.slice(-6)}\`\n• *TXID:* \`${txResult.txId}\`\n\n💳 *New Balance:* ${user.balance.toFixed(4)} KAS`;
       }
 
 
-      // CASE B: GLOBAL PHONE TRANSFER
       const normalizedTargetPhone = normalizePhone(targetRecipient);
-
-
-      if (!normalizedTargetPhone) {
-        return "❌ Invalid phone number. Please include the country code for international numbers (e.g. +12025550123).";
-      }
-
-
-      if (normalizedTargetPhone === senderPhone) {
-        return "You can't transfer KAS to your own phone number!";
-      }
+      if (!normalizedTargetPhone) return "❌ Invalid phone number. Please include the country code for international numbers.";
+      if (normalizedTargetPhone === senderPhone) return "You can't transfer KAS to your own phone number!";
 
 
       let recipientUser = await UserModel.findOne({ phone: normalizedTargetPhone });
       if (!recipientUser) {
-        const { publicKey, secret } = await KaspaService.generateWallet();
+        // 🛡️ ENCRYPTED SEED FIX
+        const { address, encryptedSeed } = await KaspaService.createEncryptedWallet();
         recipientUser = await UserModel.create({
           phone: normalizedTargetPhone,
-          walletAddress: publicKey,
-          mnemonic: secret,
+          walletAddress: address,
+          mnemonic: encryptedSeed,
           balance: 0,
         });
       }
 
 
-      // [ON-CHAIN TRIGGER ENABLED]
-      // Decrypting the sender's mnemonic to physically move funds to the recipient's Kaspa address
       const txResult = await KaspaService.sendExternalTransaction(user.mnemonic, recipientUser.walletAddress!, amount);
-      
-      if (!txResult.success) {
-        return `❌ *Blockchain Transfer Failed:* ${txResult.error}`;
-      }
+      if (!txResult.success) return `❌ *Blockchain Transfer Failed:* ${txResult.error}`;
 
 
-      // Sync Database Cache ONLY after Mainnet confirms
       user.balance -= amount;
       await user.save();
-      
+     
       recipientUser.balance += amount;
       await recipientUser.save();
 
 
-      const recipientNotificationText =
-        `🎉 *You received KAS!*\n\n` +
-        `• *Amount:* ${amount} KAS\n` +
-        `• *From:* ${senderPhone}\n` +
-        `• *New Balance:* ${recipientUser.balance.toFixed(4)} KAS\n\n` +
-        `Type *balance* to view your total wallet funds or *help* to spend it!`;
+      const recipientNotificationText = `🎉 *You received KAS!*\n\n• *Amount:* ${amount} KAS\n• *From:* ${senderPhone}\n• *New Balance:* ${recipientUser.balance.toFixed(4)} KAS\n\nType *balance* to view your total wallet funds or *help* to spend it!`;
 
 
       try {
@@ -461,16 +363,10 @@ export const ChatbotService = {
       }
 
 
-      return (
-        `✅ *Transfer Successful!*\n\n` +
-        `Sent *${amount} KAS* to *${normalizedTargetPhone}*.\n` +
-        `• *TXID:* \`${txResult.txId}\`\n` +
-        `Your new balance is *${user.balance.toFixed(4)} KAS*.`
-      );
+      return `✅ *Transfer Successful!*\n\nSent *${amount} KAS* to *${normalizedTargetPhone}*.\n• *TXID:* \`${txResult.txId}\`\nYour new balance is *${user.balance.toFixed(4)} KAS*.`;
     }
 
 
-    // --- /voucher [amount] ---
     if (msg.startsWith('/voucher')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 2) return 'Usage: /voucher [amount]\nExample: /voucher 50';
@@ -478,18 +374,15 @@ export const ChatbotService = {
 
       const amount = parseFloat(parts[1]);
       if (isNaN(amount) || amount <= 0) return 'Please enter a valid amount.';
-
-
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
       if (user.balance < amount) return `❌ Insufficient balance. You have ${user.balance.toFixed(4)} KAS.`;
 
 
-      // Create the Argent Escrow on the blockchain
       const escrow = await VaultService.createVoucherEscrow(user.mnemonic, amount);
       if (!escrow.success || !escrow.voucherCode || !escrow.vaultAddress || !escrow.txId) {
         return `❌ Escrow creation failed: ${escrow.error}`;
       }
-      
+     
       await RechargeCardModel.create({
         code: escrow.voucherCode,
         amount: amount,
@@ -504,46 +397,45 @@ export const ChatbotService = {
       await user.save();
 
 
-      return `✅ *Trustless Recharge Card Created*\n\n` +
-             `Code: *${escrow.voucherCode}*\n` +
-             `Amount: ${amount} KAS\n` +
-             `Vault: \`${escrow.vaultAddress}\`\n\n` +
-             `Funds are strictly locked on the blockchain until redeemed.`;
+      return `✅ *Trustless Recharge Card Created*\n\nCode: *${escrow.voucherCode}*\nAmount: ${amount} KAS\nVault: \`${escrow.vaultAddress}\`\n\nFunds are strictly locked on the blockchain until redeemed.`;
     }
 
 
-    // --- /redeem [code] ---
     if (msg.startsWith('/redeem')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 2) return 'Just need the code!\nUsage: redeem [code]\nExample: `redeem KASP-3D8A-AB8B-846F-2774`';
-      
+     
       let currentUser = user;
       if (!currentUser) {
-        const { publicKey, secret } = await KaspaService.generateWallet();
+        // 🛡️ ENCRYPTED SEED FIX
+        const { address, encryptedSeed } = await KaspaService.createEncryptedWallet();
         currentUser = await UserModel.create({
           phone: senderPhone,
-          walletAddress: publicKey,
-          mnemonic: secret,
+          walletAddress: address,
+          mnemonic: encryptedSeed,
           balance: 0,
         });
       }
 
 
       const code = normalizeVoucherCode(parts[1]);
-      const card = await RechargeCardModel.findOne({ code });
+      
+      // 🛡️ ATOMIC VOUCHER CLAIM FIX
+      const card = await RechargeCardModel.findOneAndUpdate(
+        { code, used: false },
+        { $set: { used: true, usedBy: senderPhone, usedAt: new Date() } },
+        { new: false } // Returns the document as it was BEFORE the update
+      );
 
 
-      if (!card) return "❌ *Invalid Voucher Code.* Please check the code and try again.";
-      if (card.used) return `❌ *Voucher Already Used.*\nThis code was redeemed on ${new Date(card.usedAt!).toLocaleDateString()}.`;
+      if (!card) return "❌ *Invalid or Already Used Voucher Code.* Please check the code and try again.";
 
 
       try {
         const operatorMnemonic = process.env.OPERATOR_WALLET_MNEMONIC || "";
-        if (!operatorMnemonic) return "❌ Operator wallet not configured for payouts.";
+        if (!operatorMnemonic) throw new Error("Operator wallet not configured for payouts.");
 
 
-        // [ON-CHAIN TRIGGER ENABLED]
-        // Force the central operator wallet to physically transfer the funds to the user's Kaspa address
         const txID = await KaspaService.sendExternalTransaction(
           operatorMnemonic,
           currentUser.walletAddress!,
@@ -552,17 +444,14 @@ export const ChatbotService = {
 
 
         if (!txID.success) {
+          // 🛡️ ROLLBACK IF TX FAILS
+          await RechargeCardModel.updateOne({ _id: card._id }, { $set: { used: false, usedBy: null, usedAt: null } });
           return `❌ Blockchain rejected redemption: ${txID.error}`;
         }
 
 
         const finalTxID = typeof txID === 'object' ? txID.txId : txID;
-        // Update DB state ONLY after network confirms
-        card.used = true;
-        card.usedBy = senderPhone;
-        card.usedAt = new Date();
-        (card as any).redeemTxId = finalTxID; // Saved as pure string
-        await card.save();
+        await RechargeCardModel.updateOne({ _id: card._id }, { $set: { redeemTxId: finalTxID } });
 
 
         currentUser.balance += card.amount;
@@ -577,205 +466,133 @@ export const ChatbotService = {
           `Type *help bills* to spend your KAS on airtime or utilities!`
         );
       } catch (error: any) {
+        // 🛡️ ROLLBACK IF TX CRASHES
+        await RechargeCardModel.updateOne({ _id: card._id }, { $set: { used: false, usedBy: null, usedAt: null } });
         console.error("[REDEEM_ERROR] Blockchain interaction failed:", error);
         return `⚠️ *Redemption failed on-chain:* ${error.message || 'Unknown error occurred while broadcasting.'}`;
       }
     }
 
 
-    // --- /airtime ---
     if (msg.startsWith('/airtime')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 4) return 'I need a few more details for that.\nUsage: airtime [network] [phone] [amount in naira]\nExample: airtime MTN 08012345678 1000';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
-
-
       const network = parts[1].toUpperCase();
       const targetPhone = normalizePhone(parts[2]);
       const amountNaira = parseFloat(parts[3]);
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
-
-
       const requiredKAS = await nairaToKAS(amountNaira);
       if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-
-
       const result = await BillPayService.buyAirtime(targetPhone, amountNaira, network);
       if (!result.success) return result.message;
-
-
       user.balance -= requiredKAS;
       await user.save();
       return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
     }
 
 
-    // --- /data [network] [phone] [amount_naira] ---
     if (msg.startsWith('/data')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 4) return 'I need a few more details for that.\nUsage: data [network] [phone] [amount in naira]\nExample: `data MTN 08012345678 1000`';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
-
-
       const network = parts[1].toUpperCase();
       const targetPhone = normalizePhone(parts[2]);
       const amountNaira = parseFloat(parts[3]);
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
-
-
       const requiredKAS = await nairaToKAS(amountNaira);
       if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-
-
       const result = await BillPayService.buyData(targetPhone, amountNaira, network);
       if (!result.success) return result.message;
-
-
       user.balance -= requiredKAS;
       await user.save();
       return `${result.message}\n💳 *Deducted:* ${requiredKAS.toFixed(4)} KAS`;
     }
 
 
-    // --- /convert [network] [amount_naira] (Airtime to KAS) ---
     if (msg.startsWith('/convert')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 3) return 'Usage: convert [network] [airtime_naira_amount]\nExample: `convert MTN 1000`';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
-
-
       const network = parts[1].toUpperCase();
       const amountNaira = parseFloat(parts[2]);
-
-
       if (isNaN(amountNaira) || amountNaira <= 0) return "Invalid airtime amount.";
-
-
       const kasEquivalent = await nairaToKAS(amountNaira * 0.85);
-
-
-      return (
-        `📱 *Airtime to KAS Swap Request*\n\n` +
-        `• *Network:* ${network}\n` +
-        `• *Airtime Value:* ₦${amountNaira.toLocaleString()}\n` +
-        `• *You Receive:* ~${kasEquivalent.toFixed(4)} KAS (after 15% provider fee)\n\n` +
-        `To complete, transfer ₦${amountNaira} airtime to our operational line (*08012345678*), then reply with your transfer reference.`
-      );
+      return `📱 *Airtime to KAS Swap Request*\n\n• *Network:* ${network}\n• *Airtime Value:* ₦${amountNaira.toLocaleString()}\n• *You Receive:* ~${kasEquivalent.toFixed(4)} KAS (after 15% provider fee)\n\nTo complete, transfer ₦${amountNaira} airtime to our operational line (*08012345678*), then reply with your transfer reference.`;
     }
 
 
-    // --- /electricity ---
     if (msg.startsWith('/electricity')) {
       const parts = rawMsg.split(' ');
-      if (parts.length < 4) return 'I need a few more details for that.\nUsage: electricity [provider] [meter number] [amount in naira]\nExample: electricity IKEDC 1234567890 5000\nSupported: IKEDC, EKEDC, AEDC, KEDCO, PHED, IBEDC, EEDC, KAEDCO, JED, BEDC, YEDC';
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: electricity [provider] [meter number] [amount in naira]';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
-
-
       const provider = parts[1].toUpperCase();
       const meterNumber = parts[2];
       const amountNaira = parseFloat(parts[3]);
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
-
-
       const requiredKAS = await nairaToKAS(amountNaira);
       if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-
-
       const result = await BillPayService.payElectricity(meterNumber, amountNaira, provider);
       if (!result.success) return result.message;
-
-
       user.balance -= requiredKAS;
       await user.save();
       return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
     }
 
 
-    // --- /water ---
     if (msg.startsWith('/water')) {
       const parts = rawMsg.split(' ');
-      if (parts.length < 4) return 'I need a few more details for that.\nUsage: water [provider] [account number] [amount in naira]\nExample: water LSWC 1234567890 3000';
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: water [provider] [account number] [amount in naira]';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
-
-
       const provider = parts[1].toUpperCase();
       const accountNumber = parts[2];
       const amountNaira = parseFloat(parts[3]);
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
-
-
       const requiredKAS = await nairaToKAS(amountNaira);
       if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-
-
       const result = await BillPayService.payWater(accountNumber, amountNaira, provider);
       if (!result.success) return result.message;
-
-
       user.balance -= requiredKAS;
       await user.save();
       return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
     }
 
 
-    // --- /cable ---
     if (msg.startsWith('/cable')) {
       const parts = rawMsg.split(' ');
-      if (parts.length < 4) return 'I need a few more details for that.\nUsage: cable [provider] [smartcard number] [amount in naira]\nExample: cable DSTV 1234567890 8500\nSupported: DSTV, GOTV, STARTIMES, SHOWMAX';
+      if (parts.length < 4) return 'I need a few more details for that.\nUsage: cable [provider] [smartcard number] [amount in naira]';
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
-
-
       const provider = parts[1].toUpperCase();
       const smartcardNumber = parts[2];
       const amountNaira = parseFloat(parts[3]);
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
-
-
       const requiredKAS = await nairaToKAS(amountNaira);
       if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-
-
       const result = await BillPayService.payCable(smartcardNumber, amountNaira, provider);
       if (!result.success) return result.message;
-
-
       user.balance -= requiredKAS;
       await user.save();
       return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
     }
 
 
-    // --- /help (TIERED MENU SYSTEM) ---
     if (msg.startsWith('/help')) {
       const parts = msg.split(' ');
       const topic = parts[1] || 'main';
 
 
       if (topic === 'send') {
-        return (
-          `💸 *How to Send KAS*\n\n` +
-          `To send Kaspa instantly, type:\n` +
-          `*send [Phone Number or Address] [Amount]*\n\n` +
-          `_Examples:_\n` +
-          `• Phone: \`send 08012345678 150\`\n` +
-          `• Wallet: \`send kaspa:qq123456789... 150\``
-        );
+        return `💸 *How to Send KAS*\n\nTo send Kaspa instantly, type:\n*send [Phone Number or Address] [Amount]*\n\n_Examples:_\n• Phone: \`send 08012345678 150\`\n• Wallet: \`send kaspa:qq123456789... 150\``;
       }
-      
       if (topic === 'bills') {
         return `📱 *How to Pay Bills*\n\n*Airtime:*\n\`airtime [Network] [Number] [Amount Naira]\`\nExample: \`airtime MTN 08012345678 1000\`\n\n*Electricity:*\n\`electricity [Provider] [Meter No] [Amount Naira]\`\nExample: \`electricity IKEDC 1234567890 5000\`\n\n*Cable:*\n\`cable [Provider] [Smartcard] [Amount Naira]\`\nExample: \`cable DSTV 1234567890 8500\``;
       }
-      
       if (topic === 'redeem' || topic === 'voucher') {
         return `🎟️ *Vouchers & Redemption*\n\n*Redeem a voucher:*\n\`redeem [Code]\`\nExample: \`redeem KASP-1234-5678-9012\`\n\n*Create a voucher:*\n\`voucher [Amount KAS]\`\nExample: \`voucher 50\``;
       }
-      
       if (topic === 'wallet') {
         return `🔐 *Wallet Management*\n\n*Check Balance:*\n\`balance\`\n\n*Set Security PIN:*\n\`/setpin [4-6 digits]\`\n\n*Backup Recovery Phrase:*\n\`export\``;
       }
-
-
-      // Default Main Menu
       return `⚡ *Kasapp Main Menu* ⚡\nReply with a keyword to see how it works:\n\n💸 *help send* - Transfer KAS\n🎟️ *help redeem* - Load a voucher\n📱 *help bills* - Airtime, data, TV, electricity\n💰 *help wallet* - Balance, PIN, and backup`;
     }
 
@@ -783,3 +600,5 @@ export const ChatbotService = {
     return "Sorry, I didn't quite catch that. Type *help* to see everything I can do.";
   },
 };
+
+

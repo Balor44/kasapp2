@@ -38,7 +38,7 @@ import whatsappRoutes from './routes/whatsapp.routes';
 import paymentRoutes from './routes/payment.routes';
 import merchantRoutes from './routes/merchant.routes';
 import { redeemMerchantVoucher } from './controllers/merchant.controller';
-
+import { requireAdminKey } from './middleware/auth.middleware';
 
 const app = express();
 app.use(cors());
@@ -56,14 +56,15 @@ app.use(express.json());
 
 
 // API Routes
-app.use('/api/wallet', walletRoutes);
-app.use('/api/billpay', billpayRoutes);
-app.use('/api/merchant', merchantRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/redeem', redeemRoutes);
-app.use('/api', messageRoutes);
-app.use('/api', waitlistRoutes);
-app.use('/api', paymentRoutes);
+app.use('/api/wallet', requireAdminKey, walletRoutes);
+app.use('/api/billpay', requireAdminKey, billpayRoutes);
+app.use('/api/merchant', requireAdminKey, merchantRoutes);
+app.use('/api/admin', requireAdminKey, adminRoutes);
+app.use('/api/redeem', requireAdminKey, redeemRoutes);
+app.use('/api', requireAdminKey, messageRoutes);
+app.use('/api', requireAdminKey, waitlistRoutes);
+app.use('/api', requireAdminKey, paymentRoutes);
+
 
 
 app.post(`/api/v1/merchant/redeem`, redeemMerchantVoucher);

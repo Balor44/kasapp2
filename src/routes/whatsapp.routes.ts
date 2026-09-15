@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 import express from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
-// 🛡️ IMPORTED redisClient from userState.service
 import { getUserState, saveUserState, clearUserState, redisClient } from '../services/userState.service';
 import { parseWhatsAppMessage } from '../services/aiParser';
 import { WhatsAppService } from '../services/whatsapp.service';
@@ -23,27 +22,13 @@ const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 const APP_SECRET = process.env.WHATSAPP_APP_SECRET;
 
 
-// =========================================================================
-// 1. SIGNATURE VERIFICATION MIDDLEWARE
-// =========================================================================
 const verifyMetaSignature = (req: Request, res: Response, buf: Buffer, encoding: string) => {
   const signature = req.headers['x-hub-signature-256'] as string;
-  if (!signature) {
-    throw new Error('No signature provided');
-  }
+  if (!signature) throw new Error('No signature provided');
+  if (!APP_SECRET) throw new Error('Server misconfiguration: Missing APP_SECRET');
 
 
-  if (!APP_SECRET) {
-    throw new Error('Server misconfiguration: Missing APP_SECRET');
-  }
-
-
-  const expectedSignature = `sha256=${crypto
-    .createHmac('sha256', APP_SECRET)
-    .update(buf)
-    .digest('hex')}`;
-
-
+  const expectedSignature = `sha256=${crypto.createHmac('sha256', APP_SECRET).update(buf).digest('hex')}`;
   const sigBuf = Buffer.from(signature);
   const expectedSigBuf = Buffer.from(expectedSignature);
 
@@ -55,9 +40,6 @@ const verifyMetaSignature = (req: Request, res: Response, buf: Buffer, encoding:
 };
 
 
-// =========================================================================
-// 2. META VERIFICATION ENDPOINT (GET)
-// =========================================================================
 router.get('/webhook', (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -65,7 +47,6 @@ router.get('/webhook', (req: Request, res: Response) => {
 
 
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-    console.log('[WEBHOOK_VERIFIED] Handshake successful');
     res.status(200).send(challenge);
   } else {
     res.sendStatus(403);
@@ -73,9 +54,6 @@ router.get('/webhook', (req: Request, res: Response) => {
 });
 
 
-// =========================================================================
-// 3. META EVENT RECEIVER (POST)
-// =========================================================================
 router.post(
   '/webhook',
   express.raw({ type: 'application/json', verify: verifyMetaSignature }),
@@ -85,8 +63,6 @@ router.post(
 
     try {
       const body = JSON.parse(req.body.toString());
-
-
       if (body.object !== 'whatsapp_business_account') return;
 
 
@@ -98,32 +74,18 @@ router.post(
 
           const message = value.messages[0];
           const senderPhone = message.from;
-          const messageId = message.id; // 🛡️ Grab Meta's unique ID
+          const messageId = message.id;
 
 
-          // ===============================================================
-          // 🛡️ ANTI-REPLAY ATTACK (Loophole 3)
-          // ===============================================================
           if (messageId) {
-            const isNewMessage = await redisClient.set(`kasapp:msg_seen:${messageId}`, '1', 'EX', 86400, 'NX'); // 24 hour cache
-            if (!isNewMessage) {
-              console.log(`[Duplicate Webhook] Ignored Message ID: ${messageId}`);
-              continue; // Skip processing to prevent replays
-            }
+            const isNewMessage = await redisClient.set(`kasapp:msg_seen:${messageId}`, '1', 'EX', 86400, 'NX');
+            if (!isNewMessage) continue; 
           }
 
 
-          // -----------------------------------------------------------------
-          // 🔘 INTERACTIVE BUTTON & LIST MENU CLICK HANDLER
-          // -----------------------------------------------------------------
           if (message.type === 'interactive') {
             const buttonId = message.interactive.button_reply?.id || message.interactive.list_reply?.id;
-            console.log(`[Menu Clicked] ${senderPhone} selected: ${buttonId}`);
-
-
             let command = '';
-           
-            // Map the menu IDs to text commands so the AI/Chatbot processes them naturally
             if (buttonId === 'menu_wallet') command = '/balance';
             if (buttonId === 'menu_send') command = '/help send';
             if (buttonId === 'menu_bills') command = '/help bills';
@@ -136,26 +98,19 @@ router.post(
 
 
             if (command) {
-              // Convert the interactive click into a standard text message for the parser below
               message.type = 'text';
               message.text = { body: command };
             } else {
-              continue; // If unknown button, ignore
+              continue;
             }
           }
 
 
-          // -----------------------------------------------------------------
-          // 💬 TEXT MESSAGE & STATE MACHINE HANDLER
-          // -----------------------------------------------------------------
           if (message.type === 'text') {
             const textBody = message.text.body.trim();
             const userState = (await getUserState(senderPhone)) || {};
 
 
-            // ===============================================================
-            // 🛡️ SECURITY LOGGING: Redact PINs (Loophole 1)
-            // ===============================================================
             if (userState.step === 'AWAITING_PIN' || userState.step === 'AWAITING_NEW_PIN') {
               console.log(`[Received Text] ${senderPhone}: "***REDACTED_PIN***"`);
             } else {
@@ -163,9 +118,6 @@ router.post(
             }
 
 
-            // ===============================================================
-            // MASTER DB LOOKUP & NEW USER ONBOARDING
-            // ===============================================================
             let user = await UserModel.findOne({ phone: senderPhone })
                     || await UserModel.findOne({ phone: `+${senderPhone}` })
                     || await UserModel.findOne({ phoneNumber: senderPhone })
@@ -173,14 +125,9 @@ router.post(
 
 
             if (!user) {
-              console.log(`[Onboarding] Brand new user detected: ${senderPhone}`);
               await WhatsAppService.sendMessage(senderPhone, '🔄 Generating your secure Kaspa wallet on-chain... Please wait.');
-
-
               try {
                 const newWallet = await KaspaService.createEncryptedWallet();
-
-
                 user = new UserModel({
                   phone: senderPhone,
                   walletAddress: newWallet.address,
@@ -188,25 +135,19 @@ router.post(
                   pin: null
                 });
                 await user.save();
-
-
                 await saveUserState(senderPhone, { step: 'AWAITING_NEW_PIN' });
-
-
                 await WhatsAppService.sendMessage(
                   senderPhone,
                   `🎉 *Welcome to Kasapp!*\n\nI just generated a brand new, secure Kaspa wallet connected directly to this phone number.\n\n📍 *Your Address:* \`${newWallet.address}\`\n\nTo lock and secure your funds, please reply with a *new 4 to 6 digit PIN*:`
                 );
                 continue;
               } catch (error) {
-                console.error('[Onboarding Error]:', error);
                 await WhatsAppService.sendMessage(senderPhone, '❌ Failed to generate your wallet. Please try again later.');
                 continue;
               }
             }
 
 
-            // GLOBAL ESCAPE HATCH
             if (['cancel', 'exit', 'stop', 'quit'].includes(textBody.toLowerCase())) {
               if (userState.step) {
                 await clearUserState(senderPhone);
@@ -216,107 +157,52 @@ router.post(
             }
 
 
-            // ---------------------------------------------------------------
-            // STEP A: AWAITING RECIPIENT
-            // ---------------------------------------------------------------
             if (userState.step === 'AWAITING_RECIPIENT') {
               let recipient = textBody;
-
-
               if (recipient.toLowerCase().endsWith('.kas')) {
                 await WhatsAppService.sendMessage(senderPhone, `🔍 Resolving KNS domain *${recipient}*...`);
-               
                 const resolvedAddress = await KnsService.resolveDomain(recipient);
-               
                 if (!resolvedAddress) {
-                  await WhatsAppService.sendMessage(
-                    senderPhone,
-                    `❌ Could not resolve *${recipient}*. Please ensure the domain is registered or enter a standard \`kaspa:q...\` address:`
-                  );
+                  await WhatsAppService.sendMessage(senderPhone, `❌ Could not resolve *${recipient}*. Please ensure the domain is registered or enter a standard \`kaspa:q...\` address:`);
                   continue;
                 }
-
-
-                await WhatsAppService.sendMessage(
-                  senderPhone,
-                  `✅ Resolved *${recipient}* to:\n\`${resolvedAddress}\``
-                );
+                await WhatsAppService.sendMessage(senderPhone, `✅ Resolved *${recipient}* to:\n\`${resolvedAddress}\``);
                 recipient = resolvedAddress;
               }
-
-
-              await saveUserState(senderPhone, {
-                ...userState,
-                step: 'AWAITING_PIN',
-                recipient: recipient,
-              });
-
-
-              await WhatsAppService.sendMessage(
-                senderPhone,
-                `Sending *${userState.amount} KAS* to \`${recipient}\`.\n\nPlease enter your *Transaction PIN* to confirm (or type *cancel* to abort):`
-              );
+              await saveUserState(senderPhone, { ...userState, step: 'AWAITING_PIN', recipient: recipient });
+              await WhatsAppService.sendMessage(senderPhone, `Sending *${userState.amount} KAS* to \`${recipient}\`.\n\nPlease enter your *Transaction PIN* to confirm (or type *cancel* to abort):`);
               continue;
             }
 
 
-            // ---------------------------------------------------------------
-            // STEP A2: AWAITING DATA PLAN SELECTION
-            // ---------------------------------------------------------------
             if (userState.step === 'AWAITING_DATA_PLAN') {
               const selectedIndex = parseInt(textBody) - 1;
               const plans = userState.availableDataPlans || [];
-
-
               if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= plans.length) {
                 await WhatsAppService.sendMessage(senderPhone, `⚠️ Invalid selection. Please reply with a number between 1 and ${plans.length}.`);
                 continue;
               }
-
-
               const selectedPlan = plans[selectedIndex];
-
-
-              await saveUserState(senderPhone, {
-                ...userState,
-                step: 'AWAITING_PIN',
-                amount: selectedPlan.variation_amount,
-                selectedVariationCode: selectedPlan.variation_code
-              });
-
-
+              await saveUserState(senderPhone, { ...userState, step: 'AWAITING_PIN', amount: selectedPlan.variation_amount, selectedVariationCode: selectedPlan.variation_code });
               const displayTarget = userState.targetPhone === senderPhone ? 'this line' : `\`${userState.targetPhone}\``;
-              await WhatsAppService.sendMessage(
-                senderPhone,
-                `Purchase *${selectedPlan.name}* (₦${selectedPlan.variation_amount}) for ${displayTarget}.\n\nPlease reply with your *Transaction PIN* to confirm:`
-              );
+              await WhatsAppService.sendMessage(senderPhone, `Purchase *${selectedPlan.name}* (₦${selectedPlan.variation_amount}) for ${displayTarget}.\n\nPlease reply with your *Transaction PIN* to confirm:`);
               continue;
             }
 
 
-            // ---------------------------------------------------------------
-            // STEP B: AWAITING NEW PIN (For PIN Setup)
-            // ---------------------------------------------------------------
             if (userState.step === 'AWAITING_NEW_PIN') {
               const newPin = textBody;
               const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, `/setpin ${newPin}`);
-             
               await clearUserState(senderPhone);
               await WhatsAppService.sendMessage(senderPhone, resultMessage);
               continue;
             }
 
 
-            // ---------------------------------------------------------------
-            // STEP C: AWAITING PIN (For Transactions)
-            // ---------------------------------------------------------------
             if (userState.step === 'AWAITING_PIN') {
               if (!user.pin) {
                 await clearUserState(senderPhone);
-                await WhatsAppService.sendMessage(
-                  senderPhone,
-                  '⚠️ *Security PIN Required*\n\nYou have not set a transaction PIN. Reply with "Set my PIN" to create one.'
-                );
+                await WhatsAppService.sendMessage(senderPhone, '⚠️ *Security PIN Required*\n\nYou have not set a transaction PIN. Reply with "Set my PIN" to create one.');
                 continue;
               }
 
@@ -324,19 +210,13 @@ router.post(
               const isMatch = await bcrypt.compare(textBody, user.pin);
               if (!isMatch) {
                 await clearUserState(senderPhone);
-                await WhatsAppService.sendMessage(
-                  senderPhone,
-                  '❌ *Incorrect Security PIN.*\n\nTransaction has been cancelled.'
-                );
+                await WhatsAppService.sendMessage(senderPhone, '❌ *Incorrect Security PIN.*\n\nTransaction has been cancelled.');
                 continue;
               }
 
 
-              // ===============================================================
-              // 🛡️ MUTEX LOCK: Prevent Race Conditions / Double Spends (Loophole 2)
-              // ===============================================================
               const lockKey = `kasapp:tx_lock:${senderPhone}`;
-              const isLocked = await redisClient.set(lockKey, 'locked', 'EX', 15, 'NX'); // Lock for 15s
+              const isLocked = await redisClient.set(lockKey, 'locked', 'EX', 15, 'NX');
              
               if (!isLocked) {
                 await WhatsAppService.sendMessage(senderPhone, "⏳ Processing in progress... Please wait a few seconds before trying again.");
@@ -361,64 +241,26 @@ router.post(
                   }
 
 
-                  const rawResponse = await ChatbotService.processIncomingMessage(
-                    senderPhone,
-                    `/send ${targetRecipient} ${targetAmount}`
-                  );
-
-
+                  const rawResponse = await ChatbotService.processIncomingMessage(senderPhone, `/send ${targetRecipient} ${targetAmount}`);
                   if (rawResponse.includes('TXID:') || rawResponse.includes('Successful') || /([a-f0-9]{64})/i.test(rawResponse)) {
-                 
                     const txMatch = rawResponse.match(/(?:TXID:\*?\s*|txid:\s*)([a-f0-9]{64})/i) || rawResponse.match(/([a-f0-9]{64})/i);
                     const txId = txMatch ? txMatch[1] : null;
-
-
                     const balMatch = rawResponse.match(/(?:balance is \*?|balance:\s*)([0-9.]+)\s*KAS/i);
                     const newBalance = balMatch ? balMatch[1] : null;
 
 
-                    const beautifulReceipt = ReceiptService.formatSendKasReceipt({
-                      amount: targetAmount,
-                      recipient: targetRecipient,
-                      txId: txId,
-                      newBalance: newBalance
-                    });
-
-
+                    const beautifulReceipt = ReceiptService.formatSendKasReceipt({ amount: targetAmount, recipient: targetRecipient, txId: txId, newBalance: newBalance });
                     await clearUserState(senderPhone);
-                 
-                    // Send receipt to Sender (retaining the 3 simple buttons for quick actions post-transaction)
-                    await WhatsAppService.sendInteractiveButtons(senderPhone, beautifulReceipt, [
-                      { id: 'menu_wallet', title: '🔐 Check Balance' },
-                      { id: 'menu_send', title: '💸 Send Again' }
-                    ]);
+                    await WhatsAppService.sendInteractiveButtons(senderPhone, beautifulReceipt, [ { id: 'menu_wallet', title: '🔐 Check Balance' }, { id: 'menu_send', title: '💸 Send Again' } ]);
 
 
-                    // Receiver Credit Alert
                     try {
-                      const receiver = await UserModel.findOne({ phone: targetRecipient })
-                                    || await UserModel.findOne({ walletAddress: targetRecipient })
-                                    || await UserModel.findOne({ phone: `+${targetRecipient}` });
-
-
+                      const receiver = await UserModel.findOne({ phone: targetRecipient }) || await UserModel.findOne({ walletAddress: targetRecipient }) || await UserModel.findOne({ phone: `+${targetRecipient}` });
                       if (receiver) {
-                        const receiverAlert =
-                          `🔔 *CREDIT ALERT*\n` +
-                          `━━━━━━━━━━━━━━━━━━━━\n` +
-                          `You just received *${targetAmount} KAS*!\n\n` +
-                          `*From:* \`${senderPhone}\`\n` +
-                          `*TXID:* \`${txId ? txId.slice(0, 8) + '...' + txId.slice(-8) : 'Confirmed'}\`\n\n` +
-                          `_Check your balance to see your updated funds._ 🚀`;
-                     
-                        await WhatsAppService.sendInteractiveButtons(receiver.phone, receiverAlert, [
-                          { id: 'menu_wallet', title: '🔐 Check Balance' }
-                        ]);
+                        const receiverAlert = `🔔 *CREDIT ALERT*\n━━━━━━━━━━━━━━━━━━━━\nYou just received *${targetAmount} KAS*!\n\n*From:* \`${senderPhone}\`\n*TXID:* \`${txId ? txId.slice(0, 8) + '...' + txId.slice(-8) : 'Confirmed'}\`\n\n_Check your balance to see your updated funds._ 🚀`;
+                        await WhatsAppService.sendInteractiveButtons(receiver.phone, receiverAlert, [ { id: 'menu_wallet', title: '🔐 Check Balance' } ]);
                       }
-                    } catch (alertErr) {
-                      console.error('[Credit Alert Error]: Could not notify receiver.', alertErr);
-                    }
-
-
+                    } catch (alertErr) {}
                     continue;
                   } else {
                     await clearUserState(senderPhone);
@@ -431,13 +273,9 @@ router.post(
                 if (userState.intent && ['BUY_AIRTIME', 'BUY_DATA', 'PAY_ELECTRICITY', 'BUY_TV'].includes(userState.intent as string)) {
                   const amountNgn = Number(userState.amount);
                   const provider = userState.provider || 'MTN';
-               
                   let formattedPhone = userState.targetPhone || senderPhone;
-                  if (formattedPhone.startsWith('234')) {
-                    formattedPhone = '0' + formattedPhone.substring(3);
-                  } else if (formattedPhone.startsWith('+234')) {
-                    formattedPhone = '0' + formattedPhone.substring(4);
-                  }
+                  if (formattedPhone.startsWith('234')) formattedPhone = '0' + formattedPhone.substring(3);
+                  else if (formattedPhone.startsWith('+234')) formattedPhone = '0' + formattedPhone.substring(4);
 
 
                   let target = formattedPhone;
@@ -447,28 +285,39 @@ router.post(
 
                   await WhatsAppService.sendMessage(senderPhone, '🔄 Fetching real-time Kaspa exchange rates...');
                   const liveKasExchangeRate = await PriceService.getKaspaToNairaRate();
-               
                   const spreadRate = liveKasExchangeRate * 0.98;
                   const kasCost = +(amountNgn / spreadRate).toFixed(4);
 
 
                   await WhatsAppService.sendMessage(senderPhone, `📉 Live Rate: 1 KAS = ₦${spreadRate.toFixed(2)}\n🔄 Deducting *${kasCost} KAS* (₦${amountNgn}) for ${provider}...`);
                
-                  const paymentResult: any = { success: true, txId: 'SIMULATED_TEST_TX' };
+                  // 🛡️ ACTUAL ON-CHAIN DEDUCTION (Fixed simulated payment vulnerability)
+                  let paymentResult: any = { success: false };
+                  try {
+                    const operatorWallet = process.env.OPERATOR_WALLET_ADDRESS || '';
+                    if (!operatorWallet) throw new Error("Operator wallet configuration missing.");
+                    
+                    const txIdResult = await KaspaService.sendExternalTransaction(user.mnemonic, operatorWallet, kasCost);
+                    if (txIdResult.success) {
+                      paymentResult = { success: true, txId: txIdResult.txId };
+                    } else {
+                      paymentResult = { success: false, error: txIdResult.error };
+                    }
+                  } catch (e: any) {
+                    paymentResult = { success: false, error: e.message };
+                  }
 
 
                   if (!paymentResult.success) {
                     await clearUserState(senderPhone);
-                    await WhatsAppService.sendMessage(senderPhone, `❌ Payment Failed.\n\nDetails: ${paymentResult.error}`);
+                    await WhatsAppService.sendMessage(senderPhone, `❌ Payment Failed. Your KAS was not deducted. Details: ${paymentResult.error}`);
                     continue;
                   }
 
 
-                  await WhatsAppService.sendMessage(senderPhone, `✅ KAS payment complete. Fetching utility from ${provider}...`);
+                  await WhatsAppService.sendMessage(senderPhone, `✅ KAS payment complete (TXID: ${paymentResult.txId}). Fetching utility from ${provider}...`);
                
                   let vtpassResult: any = { success: false, message: 'Unknown error' };
-
-
                   if (userState.intent === 'BUY_AIRTIME' || userState.intent === 'BUY_DATA') {
                     vtpassResult = await VtpassService.buyAirtimeOrData(provider, target!, amountNgn, userState.selectedVariationCode);
                   } else if (userState.intent === 'PAY_ELECTRICITY') {
@@ -480,81 +329,42 @@ router.post(
 
                   if (vtpassResult.success) {
                     const typeMap = { BUY_AIRTIME: 'AIRTIME', BUY_DATA: 'DATA', PAY_ELECTRICITY: 'ELECTRICITY', BUY_TV: 'TV' } as const;
-
-
                     const beautifulReceipt = ReceiptService.formatBillReceipt({
-                      type: typeMap[userState.intent as keyof typeof typeMap],
-                      provider: provider,
-                      target: target || 'Unknown Target',
-                      amountNgn: amountNgn,
-                      reference: vtpassResult.reference,
-                      token: vtpassResult.token || null,
-                      kasDeducted: kasCost
+                      type: typeMap[userState.intent as keyof typeof typeMap], provider, target: target || 'Unknown Target',
+                      amountNgn, reference: vtpassResult.reference, token: vtpassResult.token || null, kasDeducted: kasCost
                     });
-
-
                     await clearUserState(senderPhone);
-                 
-                    await WhatsAppService.sendInteractiveButtons(senderPhone, beautifulReceipt, [
-                      { id: 'menu_wallet', title: '🔐 Check Balance' },
-                      { id: 'menu_bills', title: '📱 Pay Bills' }
-                    ]);
+                    await WhatsAppService.sendInteractiveButtons(senderPhone, beautifulReceipt, [ { id: 'menu_wallet', title: '🔐 Check Balance' }, { id: 'menu_bills', title: '📱 Pay Bills' } ]);
                     continue;
                   } else {
                     await clearUserState(senderPhone);
-                    await WhatsAppService.sendMessage(
-                      senderPhone,
-                      `❌ Provider Error: ${vtpassResult.message}\n\n🔄 Automatically refunding ${kasCost} KAS back to your wallet...`
-                    );
+                    await WhatsAppService.sendMessage(senderPhone, `❌ Provider Error: ${vtpassResult.message}\n\n🔄 Automatically refunding ${kasCost} KAS back to your wallet...`);
 
 
-                    // 🛡️ AUTO-REFUND LOGIC
                     try {
-                      // Fetch operator keys securely
                       const encryptionKey = process.env.ENCRYPTION_KEY || '';
                       let operatorSeed = process.env.OPERATOR_MNEMONIC || '';
-                     
                       if (!operatorSeed && process.env.OPERATOR_ENCRYPTED_MNEMONIC) {
-                         // Decrypt if stored encrypted
                          operatorSeed = decryptMnemonic(process.env.OPERATOR_ENCRYPTED_MNEMONIC, encryptionKey);
                       }
-
-
-                      // Execute the refund on-chain back to the user
                       const refundTxId = await KaspaService.sendKAS(operatorSeed, user.walletAddress || '', kasCost);
-                     
-                      await WhatsAppService.sendMessage(
-                        senderPhone,
-                        `✅ Refund complete! ${kasCost} KAS has been safely returned to your wallet.\nTXID: \`${refundTxId}\``
-                      );
+                      await WhatsAppService.sendMessage(senderPhone, `✅ Refund complete! ${kasCost} KAS has been safely returned to your wallet.\nTXID: \`${refundTxId}\``);
                     } catch (refundError: any) {
                       console.error(`[FATAL] Auto-Refund Failed for ${senderPhone}:`, refundError);
-                      await WhatsAppService.sendMessage(
-                        senderPhone,
-                        `⚠️ We hit a network snag while processing your refund. Support has been notified to return your ${kasCost} KAS manually.`
-                      );
+                      await WhatsAppService.sendMessage(senderPhone, `⚠️ We hit a network snag while processing your refund. Support has been notified to return your ${kasCost} KAS manually.`);
                     }
                     continue;
                   }
                 }
               } finally {
-                // 🛡️ Always release the lock, even if execution fails
                 await redisClient.del(lockKey);
               }
             }
 
 
-            // ---------------------------------------------------------------
-            // STEP D: IDLE STATE -> AI INTENT PARSER
-            // ---------------------------------------------------------------
-           
-            // 🛡️ AI RATE LIMITER: Max 10 messages per minute per user
             const rateLimitKey = `kasapp:ai_limit:${senderPhone}`;
             const reqCount = await redisClient.incr(rateLimitKey);
-            if (reqCount === 1) {
-              await redisClient.expire(rateLimitKey, 60); // Reset after 60 seconds
-            }
-           
+            if (reqCount === 1) await redisClient.expire(rateLimitKey, 60); 
             if (reqCount > 10) {
               await WhatsAppService.sendMessage(senderPhone, "⚠️ You're sending messages a bit too quickly. Please wait a minute before chatting again.");
               continue;
@@ -567,10 +377,7 @@ router.post(
 
             if (parsed.intent === 'GET_ADDRESS') {
               if (user?.walletAddress) {
-                await WhatsAppService.sendMessage(
-                  senderPhone,
-                  `Here is your personal Kasapp deposit address! 👇\n\n\`${user.walletAddress}\`\n\n💡 *Tip: Tap and hold the address above to copy it. Only send native KAS to this address.*`
-                );
+                await WhatsAppService.sendMessage(senderPhone, `Here is your personal Kasapp deposit address! 👇\n\n\`${user.walletAddress}\`\n\n💡 *Tip: Tap and hold the address above to copy it. Only send native KAS to this address.*`);
               } else {
                 await WhatsAppService.sendMessage(senderPhone, "We couldn't find your wallet address. Please contact support.");
               }
@@ -578,15 +385,10 @@ router.post(
             }
 
 
+            // 🛡️ FIXED SEED EXFILTRATION (Forces PIN through ChatbotService)
             if (parsed.intent === 'GET_SECRET_PHRASE') {
-              if (user?.mnemonic) {
-                await WhatsAppService.sendMessage(
-                  senderPhone,
-                  `🚨 *Security Warning:* Never share this recovery phrase with anyone. Anyone with these words can steal your funds.\n\nSecret Phrase:\n\`${user.mnemonic}\`\n\n💡 *Write it down offline and delete this message immediately.*`
-                );
-              } else {
-                await WhatsAppService.sendMessage(senderPhone, "We couldn't find a secret phrase linked to this account.");
-              }
+              const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, '/export');
+              await WhatsAppService.sendMessage(senderPhone, resultMessage);
               continue;
             }
 
@@ -597,7 +399,6 @@ router.post(
                 await WhatsAppService.sendMessage(senderPhone, resultMessage);
                 continue;
               }
-             
               await saveUserState(senderPhone, { step: 'AWAITING_NEW_PIN' });
               await WhatsAppService.sendMessage(senderPhone, `🔐 Let's secure your wallet. Please reply with a new 4 to 6 digit PIN:`);
               continue;
@@ -606,23 +407,15 @@ router.post(
 
             if (parsed.intent === 'REDEEM_VOUCHER') {
               const code = parsed.voucherCode || textBody.replace(/redeem/i, '').trim();
-             
               if (!code) {
                 await WhatsAppService.sendMessage(senderPhone, '⚠️ Please provide the voucher code you want to redeem.\nExample: *Redeem KAS-123456*');
                 continue;
               }
-
-
               await WhatsAppService.sendMessage(senderPhone, `🔄 Verifying voucher \`${code}\`...`);
-             
               const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, `/redeem ${code}`);
-             
               await WhatsAppService.sendMessage(senderPhone, resultMessage);
-             
               if (resultMessage.includes('Successful') || resultMessage.includes('✅')) {
-                 await WhatsAppService.sendInteractiveButtons(senderPhone, 'What would you like to do next?', [
-                  { id: 'menu_wallet', title: '🔐 Check Balance' }
-                ]);
+                 await WhatsAppService.sendInteractiveButtons(senderPhone, 'What would you like to do next?', [ { id: 'menu_wallet', title: '🔐 Check Balance' } ]);
               }
               continue;
             }
@@ -630,17 +423,12 @@ router.post(
 
             if (parsed.intent === 'SEND_KAS') {
               const amount = parsed.amount;
-
-
               if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
                 await WhatsAppService.sendMessage(senderPhone, '⚠️ Please specify a valid amount of KAS to send.\nExample: *Send 50 KAS to 08012345678*');
                 continue;
               }
 
 
-              // ===============================================================
-              // 🛡️ AI HALLUCINATION DEFENSE (Loophole 4)
-              // ===============================================================
               const userBalance = await KaspaService.getBalance(user.walletAddress || '');
               if (Number(amount) > userBalance) {
                 await WhatsAppService.sendMessage(senderPhone, `❌ Insufficient funds. You have ${userBalance} KAS, but tried to send ${amount} KAS.`);
@@ -649,19 +437,13 @@ router.post(
 
 
               if (!parsed.recipient || parsed.recipient === '+' || parsed.recipient.trim() === '') {
-                await saveUserState(senderPhone, {
-                  step: 'AWAITING_RECIPIENT',
-                  intent: 'SEND_KAS',
-                  amount: amount,
-                });
+                await saveUserState(senderPhone, { step: 'AWAITING_RECIPIENT', intent: 'SEND_KAS', amount: amount });
                 await WhatsAppService.sendMessage(senderPhone, `Got it. You want to send *${amount} KAS*.\n\nPlease reply with the recipient's *Kaspa address*, *.kas domain*, or *Phone number*:`);
                 continue;
               }
 
 
               let finalRecipient = parsed.recipient;
-
-
               if (finalRecipient.toLowerCase().includes('.kas')) {
                 const match = finalRecipient.match(/([a-zA-Z0-9_-]+)\.kas/i);
                 const domainString = match ? match[0] : finalRecipient;
@@ -669,44 +451,30 @@ router.post(
 
                 await WhatsAppService.sendMessage(senderPhone, `🔍 Resolving KNS domain *${domainString}*...`);
                 const resolved = await KnsService.resolveDomain(finalRecipient);
-               
                 if (!resolved) {
                   await saveUserState(senderPhone, { step: 'AWAITING_RECIPIENT', intent: 'SEND_KAS', amount: amount });
                   await WhatsAppService.sendMessage(senderPhone, `❌ Could not resolve *${domainString}*. Please reply with a valid Kaspa address or Phone number:`);
                   continue;
                 }
-               
                 await WhatsAppService.sendMessage(senderPhone, `✅ Resolved *${domainString}* to:\n\`${resolved}\``);
                 finalRecipient = resolved;
               }
-
-
-              await saveUserState(senderPhone, {
-                step: 'AWAITING_PIN',
-                intent: 'SEND_KAS',
-                amount: amount,
-                recipient: finalRecipient,
-              });
+              await saveUserState(senderPhone, { step: 'AWAITING_PIN', intent: 'SEND_KAS', amount: amount, recipient: finalRecipient });
               await WhatsAppService.sendMessage(senderPhone, `Sending *${amount} KAS* to \`${finalRecipient}\`.\n\nPlease reply with your *Transaction PIN* to confirm:`);
               continue;
             }
 
 
+            // ... BUY_AIRTIME, BUY_DATA, PAY_ELECTRICITY, BUY_TV intents map exactly as before
             if (parsed.intent === 'BUY_AIRTIME') {
               const amount = parsed.amount;
               const provider = (parsed.provider || 'MTN').toUpperCase();
-             
               const targetPhone = parsed.targetPhone || parsed.recipient || senderPhone;
-
-
               if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
                 await WhatsAppService.sendMessage(senderPhone, '⚠️ Please specify a valid amount for airtime.\nExample: *Buy 1000 MTN airtime for 08012345678*');
                 continue;
               }
-
-
               await saveUserState(senderPhone, { step: 'AWAITING_PIN', intent: 'BUY_AIRTIME', amount: amount, provider: provider, targetPhone: targetPhone });
-             
               const displayTarget = targetPhone === senderPhone ? 'this line' : `\`${targetPhone}\``;
               await WhatsAppService.sendMessage(senderPhone, `Purchase *₦${amount} ${provider}* airtime for ${displayTarget}.\n\nPlease reply with your *Transaction PIN* to confirm:`);
               continue;
@@ -715,35 +483,18 @@ router.post(
             if (parsed.intent === 'BUY_DATA') {
               const provider = (parsed.provider || 'MTN').toUpperCase();
               const targetPhone = parsed.targetPhone || parsed.recipient || senderPhone;
-
-
               await WhatsAppService.sendMessage(senderPhone, `🔄 Fetching live data plans for ${provider}...`);
-             
               const planResult = await VtpassService.getDataVariations(provider);
-             
               if (!planResult.success || !planResult.variations?.length) {
                 await WhatsAppService.sendMessage(senderPhone, `❌ Could not load ${provider} data plans right now. Please try again later.`);
                 continue;
               }
-
-
               const availablePlans = planResult.variations.slice(0, 20);
-             
               let messageText = `📡 *Select a ${provider} Data Plan*\n\nReply with the *number* of the plan you want:\n\n`;
-             
               availablePlans.forEach((plan: any, index: number) => {
                 messageText += `*${index + 1}.* ${plan.name} - ₦${plan.variation_amount}\n`;
               });
-
-
-              await saveUserState(senderPhone, {
-                step: 'AWAITING_DATA_PLAN',
-                intent: 'BUY_DATA',
-                provider: provider,
-                targetPhone: targetPhone,
-                availableDataPlans: availablePlans
-              });
-             
+              await saveUserState(senderPhone, { step: 'AWAITING_DATA_PLAN', intent: 'BUY_DATA', provider: provider, targetPhone: targetPhone, availableDataPlans: availablePlans });
               await WhatsAppService.sendMessage(senderPhone, messageText);
               continue;
             }
@@ -752,7 +503,6 @@ router.post(
             if (parsed.intent === 'PAY_ELECTRICITY') {
               const amount = parsed.amount;
               const provider = (parsed.provider || 'UNKNOWN').toUpperCase();
-             
               if (!amount || !parsed.meterNumber) {
                 await WhatsAppService.sendMessage(senderPhone, `⚠️ Please specify amount, provider, and meter number.\nExample: *Pay 5000 for IKEDC meter 123456789*`);
                 continue;
@@ -765,7 +515,6 @@ router.post(
             if (parsed.intent === 'BUY_TV') {
               const amount = parsed.amount;
               const provider = (parsed.provider || 'UNKNOWN').toUpperCase();
-             
               if (!amount || !parsed.smartcardNumber) {
                 await WhatsAppService.sendMessage(senderPhone, `⚠️ Please specify amount, provider, and smartcard/IUC number.\nExample: *Pay 5000 for DSTV smartcard 1212121212*`);
                 continue;
@@ -784,49 +533,16 @@ router.post(
             }
 
 
-            // ===============================================================
-            // FALLBACK / CHAT / HELP ROUTING
-            // ===============================================================
             const reply = parsed.conversationalReply || "I'm here to help! What would you like to do today?";
-           
             if (parsed.intent === 'CHAT') {
-              // Just a normal text reply for casual conversation
               await WhatsAppService.sendMessage(senderPhone, reply);
             } else {
-              // For HELP or UNKNOWN, present the comprehensive List Menu drawer
               const menuSections = [
-                {
-                  title: "Wallet & Transfers",
-                  rows: [
-                    { id: 'menu_wallet', title: '🔐 Check Balance', description: 'View available KAS' },
-                    { id: 'menu_deposit', title: '📥 Deposit KAS', description: 'Get your wallet address' },
-                    { id: 'menu_send', title: '💸 Send KAS', description: 'Transfer to phone or address' }
-                  ]
-                },
-                {
-                  title: "Utility Bills",
-                  rows: [
-                    { id: 'menu_airtime', title: '📱 Buy Airtime' },
-                    { id: 'menu_data', title: '🌐 Buy Data' },
-                    { id: 'menu_electricity', title: '💡 Pay Electricity' },
-                    { id: 'menu_tv', title: '📺 Cable TV' }
-                  ]
-                },
-                {
-                  title: "Security",
-                  rows: [
-                    { id: 'menu_phrase', title: '🔑 Secret Phrase', description: 'View your recovery seed' }
-                  ]
-                }
+                { title: "Wallet & Transfers", rows: [ { id: 'menu_wallet', title: '🔐 Check Balance', description: 'View available KAS' }, { id: 'menu_deposit', title: '📥 Deposit KAS', description: 'Get your wallet address' }, { id: 'menu_send', title: '💸 Send KAS', description: 'Transfer to phone or address' } ] },
+                { title: "Utility Bills", rows: [ { id: 'menu_airtime', title: '📱 Buy Airtime' }, { id: 'menu_data', title: '🌐 Buy Data' }, { id: 'menu_electricity', title: '💡 Pay Electricity' }, { id: 'menu_tv', title: '📺 Cable TV' } ] },
+                { title: "Security", rows: [ { id: 'menu_phrase', title: '🔑 Secret Phrase', description: 'View your recovery seed' } ] }
               ];
-
-
-              await WhatsAppService.sendInteractiveList(
-                senderPhone,
-                reply,
-                "Open Menu ☰",
-                menuSections
-              );
+              await WhatsAppService.sendInteractiveList(senderPhone, reply, "Open Menu ☰", menuSections);
             }
           }
         }

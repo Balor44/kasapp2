@@ -3,7 +3,7 @@ import axios from 'axios';
 
 let cachedPrice: number | null = null;
 let lastFetchTime: number = 0;
-const CACHE_DURATION_MS = 60000; 
+const CACHE_DURATION_MS = 60000;
 
 
 export const PriceService = {
@@ -27,7 +27,7 @@ export const PriceService = {
         console.log(`[Price Oracle] CoinGecko Success: ₦${livePrice}`);
       }
     } catch (error) {
-      console.warn('[Price Oracle] CoinGecko rate-limited on Railway. Trying MEXC...');
+      console.warn(`[Price Oracle] CoinGecko rate-limited on Railway. Trying MEXC...`);
     }
 
 
@@ -46,10 +46,9 @@ export const PriceService = {
     }
 
 
-    if (!livePrice) {
-      // 3. Absolute Fallback (Updated to real 2026 market range instead of 250)
-      console.warn('[Price Oracle] Using hardcoded fallback.');
-      livePrice = 40; 
+    // 🛡️ THE FIX: Fail Closed. Never invent a price.
+    if (!livePrice || livePrice <= 0) {
+      throw new Error("Unable to fetch live Kaspa market rates. Please try again in a few minutes.");
     }
 
 
@@ -58,3 +57,5 @@ export const PriceService = {
     return cachedPrice as number;
   }
 };
+
+

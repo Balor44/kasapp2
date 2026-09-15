@@ -38,10 +38,10 @@ export function decryptMnemonic(encryptedData: string, secretKey: string): strin
 
 
   const parts = encryptedData.split(':');
-  
-  // Fallback for legacy unencrypted plain-text mnemonics during testing
+ 
+  // 🛡️ FATAL ERROR: Never allow silent plaintext pass-through in production
   if (parts.length !== 3) {
-    return encryptedData;
+    throw new Error('FATAL: Attempted to decrypt a plaintext or malformed mnemonic. Seed phrases must be strictly encrypted.');
   }
 
 
@@ -63,3 +63,5 @@ export function decryptMnemonic(encryptedData: string, secretKey: string): strin
 
   return decrypted;
 }
+
+
