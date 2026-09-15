@@ -198,6 +198,12 @@ router.post(
               continue;
             }
 
+             if (userState.step === 'AWAITING_EXPORT_PIN') {
+              const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, textBody);
+              await WhatsAppService.sendMessage(senderPhone, resultMessage);
+              continue;
+            }
+
 
             if (userState.step === 'AWAITING_PIN') {
               if (!user.pin) {
@@ -402,7 +408,7 @@ router.post(
               await saveUserState(senderPhone, { step: 'AWAITING_NEW_PIN' });
               await WhatsAppService.sendMessage(senderPhone, `🔐 Let's secure your wallet. Please reply with a new 4 to 6 digit PIN:`);
               continue;
-            }
+              }
 
 
             if (parsed.intent === 'REDEEM_VOUCHER') {
