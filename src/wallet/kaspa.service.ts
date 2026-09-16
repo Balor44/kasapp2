@@ -11,7 +11,7 @@ const NETWORK = process.env.KASPA_NETWORK || "mainnet";
 const DERIVATION_PATH = "m/44'/111111'/0'/0/0";
 
 
-// Default priority fee in Sompi (1 KAS = 100,000,000 Sompi). 
+// Default priority fee in Sompi (1 KAS = 100,000,000 Sompi).
 // 10,000 Sompi = 0.0001 KAS (ensures rapid inclusion by mainnet validators)
 const DEFAULT_PRIORITY_FEE = BigInt(process.env.KASPA_PRIORITY_FEE_SOMPI || "10000");
 
@@ -86,8 +86,19 @@ export const KaspaService = {
     amount: number | string,
     priorityFeeSompi: bigint = DEFAULT_PRIORITY_FEE
   ) => {
-    const senderAddress = deriveAddress(fromMnemonic);
-    const privateKey = derivePrivateKey(fromMnemonic);
+    // 🛡️ Auto-detect if fromMnemonic is an encrypted cipher or plaintext mnemonic
+    let rawMnemonic = fromMnemonic.trim();
+    if (!rawMnemonic.includes(" ") && process.env.ENCRYPTION_KEY) {
+      try {
+        rawMnemonic = decryptMnemonic(rawMnemonic, process.env.ENCRYPTION_KEY);
+      } catch {
+        // Fall back to as-is if already decrypted
+      }
+    }
+
+
+    const senderAddress = deriveAddress(rawMnemonic);
+    const privateKey = derivePrivateKey(rawMnemonic);
 
 
     const resolver = new kaspa.Resolver();
@@ -167,7 +178,11 @@ export const KaspaService = {
       }
 
 
-      const rawMnemonic = decryptMnemonic(senderEncryptedMnemonic, encryptionKey);
+      // 🛡️ FIXED: Bypass decryption if mnemonic has spaces (plaintext operator phrase)
+      let rawMnemonic = senderEncryptedMnemonic.trim();
+      if (!rawMnemonic.includes(" ")) {
+        rawMnemonic = decryptMnemonic(senderEncryptedMnemonic, encryptionKey);
+      }
 
 
       const isMainnet = recipientAddress.toLowerCase().startsWith("kaspa:");
