@@ -1,6 +1,6 @@
 {
   "name": "kasapp2",
-  "version": "1.1.2",
+  "version": "1.1.6",
   "description": "Conversational Kaspa wallet and utility settlement engine for WhatsApp",
   "main": "dist/server.js",
   "scripts": {
@@ -15,7 +15,6 @@
   },
   "keywords": [
     "kaspa",
-    "web3",
     "fintech",
     "whatsapp-bot",
     "payments"
@@ -34,7 +33,6 @@
     "bcrypt": "^6.0.0",
     "bip39": "^3.1.0",
     "cors": "^2.8.6",
-    "crypto": "^1.0.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "flutterwave-node-v3": "^1.4.1",
@@ -53,13 +51,10 @@
     "@types/express": "^5.0.6",
     "@types/node": "^26.2.0",
     "@types/node-cron": "^3.0.11",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "autoprefixer": "^10.5.4",
-    "lucide-react": "^1.28.0",
     "nodemon": "^3.1.14",
-    "postcss": "^8.5.25",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
   }
 }
+
+
