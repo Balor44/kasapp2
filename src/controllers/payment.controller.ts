@@ -10,10 +10,10 @@ const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || '';
 const BOT_PHONE = process.env.WHATSAPP_BOT_NUMBER || '2348000000000'; // E.164 format without '+'
 
 
-// Helper to generate voucher code format: KASP-XXXX-XXXX-XXXX
+// 🛡️ FIXED: Generates 8 random bytes (16 hex chars) and slices into 4 groups of 4
 function generateVoucherCode(): string {
   const raw = crypto.randomBytes(8).toString('hex').toUpperCase();
-  return `KASP-${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}`;
+  return `KASP-${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}-${raw.slice(12, 16)}`;
 }
 
 
@@ -182,3 +182,5 @@ export const PaymentController = {
     }
   },
 };
+
+

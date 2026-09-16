@@ -1,3 +1,4 @@
+// src/wallet/vault.service.ts
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -116,28 +117,24 @@ export const VaultService = {
       }
 
 
-      // 3. Resolve operator vault mnemonic
+      // 3. 🛡️ FIXED: Resolve operator vault mnemonic specifically from Railway variable
       const encryptionKey = process.env.ENCRYPTION_KEY || '';
-      let operatorSeed = process.env.OPERATOR_MNEMONIC || '';
+      
+      // Pull directly from OPERATOR_WALLET_MNEMONIC as stored in your Railway environment
+      let operatorSeed = process.env.OPERATOR_WALLET_MNEMONIC || process.env.OPERATOR_MNEMONIC || '';
 
 
-      if (!operatorSeed && process.env.OPERATOR_ENCRYPTED_MNEMONIC) {
+      // If the seed has NO spaces, it's an encrypted cipher string, so decrypt it.
+      // If it HAS spaces (like a 12-word Kastle phrase), we bypass decryption completely!
+      if (operatorSeed && !operatorSeed.includes(' ') && encryptionKey) {
+        operatorSeed = decryptMnemonic(operatorSeed, encryptionKey);
+      } else if (!operatorSeed && process.env.OPERATOR_ENCRYPTED_MNEMONIC) {
         operatorSeed = decryptMnemonic(process.env.OPERATOR_ENCRYPTED_MNEMONIC, encryptionKey);
       }
 
 
-      // In case OPERATOR_MNEMONIC was saved in an encrypted format
-      if (operatorSeed && !operatorSeed.includes(' ') && encryptionKey) {
-        try {
-          operatorSeed = decryptMnemonic(operatorSeed, encryptionKey);
-        } catch {
-          // If not encrypted, use as-is
-        }
-      }
-
-
       if (!operatorSeed) {
-        throw new Error('OPERATOR_MNEMONIC is missing or invalid. Cannot broadcast redemption.');
+        throw new Error('OPERATOR_WALLET_MNEMONIC is missing or invalid. Cannot broadcast redemption.');
       }
 
 
