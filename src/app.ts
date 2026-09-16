@@ -40,6 +40,7 @@ import merchantRoutes from './routes/merchant.routes';
 import { redeemMerchantVoucher } from './controllers/merchant.controller';
 import { requireAdminKey } from './middleware/auth.middleware';
 
+
 const app = express();
 app.use(cors());
 
@@ -55,19 +56,26 @@ app.use('/api/whatsapp', whatsappRoutes);
 app.use(express.json());
 
 
-// API Routes
+// ==========================================================================
+// PUBLIC API ROUTES (Frontend accessible)
+// ==========================================================================
+app.use('/api', waitlistRoutes);
+app.use('/api', paymentRoutes);
+
+
+// ==========================================================================
+// PROTECTED API ROUTES (Admin Key strictly required)
+// ==========================================================================
 app.use('/api/wallet', requireAdminKey, walletRoutes);
 app.use('/api/billpay', requireAdminKey, billpayRoutes);
 app.use('/api/merchant', requireAdminKey, merchantRoutes);
 app.use('/api/admin', requireAdminKey, adminRoutes);
 app.use('/api/redeem', requireAdminKey, redeemRoutes);
 app.use('/api', requireAdminKey, messageRoutes);
-app.use('/api', requireAdminKey, waitlistRoutes);
-app.use('/api', requireAdminKey, paymentRoutes);
 
 
-
-app.post(`/api/v1/merchant/redeem`, redeemMerchantVoucher);
+// Isolated merchant endpoint
+app.post(`/api/v1/merchant/redeem`, requireAdminKey, redeemMerchantVoucher);
 
 
 app.get('/health', (_req: any, res: any) => {
@@ -84,3 +92,5 @@ app.use((req: any, res: any) => {
 
 
 export default app;
+
+
