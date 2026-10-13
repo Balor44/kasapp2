@@ -12,7 +12,7 @@ import { KnsService } from '../services/kns.service';
 import { ReceiptService } from '../services/receipt.service';
 import { VtpassService } from '../services/vtpass.service';
 import { PriceService } from '../services/price.service';
-import { decryptMnemonic } from '../utils/crypto.utils';
+import { getOperatorSeed } from '../utils/operator';
 import { normalizePhone } from '../utils/phone';
 
 
@@ -448,12 +448,7 @@ router.post(
 
 
                     try {
-                      const encryptionKey = process.env.ENCRYPTION_KEY || '';
-                      let operatorSeed = process.env.OPERATOR_MNEMONIC || '';
-                      if (!operatorSeed && process.env.OPERATOR_ENCRYPTED_MNEMONIC) {
-                        operatorSeed = decryptMnemonic(process.env.OPERATOR_ENCRYPTED_MNEMONIC, encryptionKey);
-                      }
-                      const refundTxId = await KaspaService.sendKAS(operatorSeed, user.walletAddress || '', kasCost);
+                      const refundTxId = await KaspaService.sendKAS(getOperatorSeed(), user.walletAddress || '', kasCost);
                       await WhatsAppService.sendMessage(
                         senderPhone,
                         `✅ Refund complete! ${kasCost} KAS has been safely returned to your wallet.\nTXID: \`${refundTxId}\``

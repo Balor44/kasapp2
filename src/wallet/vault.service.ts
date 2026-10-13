@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { generateVoucherCode } from '../utils/voucherCode';
 import { KaspaService } from '../wallet/kaspa.service';
 import { decryptMnemonic } from '../utils/crypto.utils';
+import { getOperatorSeed } from '../utils/operator';
 
 
 // Optional: Load Argent artifact if covenants are deployed in your environment
@@ -118,24 +119,7 @@ export const VaultService = {
 
 
       // 3. 🛡️ FIXED: Resolve operator vault mnemonic specifically from Railway variable
-      const encryptionKey = process.env.ENCRYPTION_KEY || '';
-      
-      // Pull directly from OPERATOR_WALLET_MNEMONIC as stored in your Railway environment
-      let operatorSeed = process.env.OPERATOR_WALLET_MNEMONIC || process.env.OPERATOR_MNEMONIC || '';
-
-
-      // If the seed has NO spaces, it's an encrypted cipher string, so decrypt it.
-      // If it HAS spaces (like a 12-word Kastle phrase), we bypass decryption completely!
-      if (operatorSeed && !operatorSeed.includes(' ') && encryptionKey) {
-        operatorSeed = decryptMnemonic(operatorSeed, encryptionKey);
-      } else if (!operatorSeed && process.env.OPERATOR_ENCRYPTED_MNEMONIC) {
-        operatorSeed = decryptMnemonic(process.env.OPERATOR_ENCRYPTED_MNEMONIC, encryptionKey);
-      }
-
-
-      if (!operatorSeed) {
-        throw new Error('OPERATOR_WALLET_MNEMONIC is missing or invalid. Cannot broadcast redemption.');
-      }
+      const operatorSeed = getOperatorSeed();
 
 
       // 4. Broadcast the real on-chain transaction to the recipient

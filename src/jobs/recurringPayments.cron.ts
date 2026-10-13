@@ -6,7 +6,7 @@ import { sendWhatsAppNotification } from '../services/whatsapp.service';
 import { getKASPriceInNaira } from '../utils/price';
 import { redisClient } from '../services/userState.service';
 import { KaspaService } from '../wallet/kaspa.service';
-import { decryptMnemonic } from '../utils/crypto.utils';
+import { getOperatorSeed } from '../utils/operator';
 
 
 export function calculateNextDueDate(currentDate: Date, frequency: SubscriptionFrequency): Date {
@@ -171,12 +171,7 @@ export async function processRecurringSubscriptions(): Promise<void> {
         } else {
           // 🛡️ 5. AUTO-REFUND ON VTPASS FAILURE
           try {
-              const encryptionKey = process.env.ENCRYPTION_KEY || '';
-              let operatorSeed = process.env.OPERATOR_MNEMONIC || '';
-              if (!operatorSeed && process.env.OPERATOR_ENCRYPTED_MNEMONIC) {
-                  operatorSeed = decryptMnemonic(process.env.OPERATOR_ENCRYPTED_MNEMONIC, encryptionKey);
-              }
-              await KaspaService.sendKAS(operatorSeed, user.walletAddress || '', sub.amountKas);
+              await KaspaService.sendKAS(getOperatorSeed(), user.walletAddress || '', sub.amountKas);
               
               user.balance += sub.amountKas;
               await user.save();

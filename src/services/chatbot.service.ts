@@ -11,7 +11,41 @@ import { getUserState, saveUserState } from './userState.service';
 import { sendWhatsAppNotification } from './whatsapp.service';
 import { decryptMnemonic } from '../utils/crypto.utils';
 import { VaultService } from '../wallet/vault.service';
+import { getOperatorSeed } from '../utils/operator';
 
+
+// Settles a utility purchase in real KAS: the user's KAS moves on chain to the
+// operator wallet first, the bill is paid, and on provider failure the KAS is
+// refunded on chain. The database balance only mirrors the chain.
+async function settleBillWithKas(
+  user: any,
+  requiredKAS: number,
+  pay: () => Promise<{ success: boolean; message: string }>
+): Promise<string> {
+  const operatorWallet = process.env.OPERATOR_WALLET_ADDRESS || '';
+  if (!operatorWallet) return '❌ Payments are temporarily unavailable. Please try again later.';
+
+  const tx = await KaspaService.sendExternalTransaction(user.mnemonic, operatorWallet, requiredKAS);
+  if (!tx.success) return `❌ *Payment Failed.* Your KAS was not deducted.\n${tx.error}`;
+
+  user.balance -= requiredKAS;
+  await user.save();
+
+  const result = await pay();
+  if (result.success) {
+    return `${result.message}\n💳 *Deducted:* ${requiredKAS.toFixed(4)} KAS`;
+  }
+
+  try {
+    await KaspaService.sendKAS(getOperatorSeed(), user.walletAddress || '', requiredKAS);
+    user.balance += requiredKAS;
+    await user.save();
+    return `${result.message}\n\n🔄 ${requiredKAS.toFixed(4)} KAS has been refunded to your wallet.`;
+  } catch (refundError) {
+    console.error(`[FATAL] Bill refund failed for ${user.phone}:`, refundError);
+    return `${result.message}\n\n⚠️ We hit a snag refunding ${requiredKAS.toFixed(4)} KAS. Support has been notified and will return it manually.`;
+  }
+}
 
 export const ChatbotService = {
   async processIncomingMessage(fromPhone: string, rawMessageText: string): Promise<string> {
@@ -432,8 +466,7 @@ export const ChatbotService = {
 
 
       try {
-        const operatorMnemonic = process.env.OPERATOR_WALLET_MNEMONIC || "";
-        if (!operatorMnemonic) throw new Error("Operator wallet not configured for payouts.");
+        const operatorMnemonic = getOperatorSeed();
 
 
         const txID = await KaspaService.sendExternalTransaction(
@@ -484,11 +517,7 @@ export const ChatbotService = {
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
       const requiredKAS = await nairaToKAS(amountNaira);
       if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-      const result = await BillPayService.buyAirtime(targetPhone, amountNaira, network);
-      if (!result.success) return result.message;
-      user.balance -= requiredKAS;
-      await user.save();
-      return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
+      return await settleBillWithKas(user, requiredKAS, () => BillPayService.buyAirtime(targetPhone, amountNaira, network));
     }
 
 
@@ -502,11 +531,7 @@ export const ChatbotService = {
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
       const requiredKAS = await nairaToKAS(amountNaira);
       if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-      const result = await BillPayService.buyData(targetPhone, amountNaira, network);
-      if (!result.success) return result.message;
-      user.balance -= requiredKAS;
-      await user.save();
-      return `${result.message}\n💳 *Deducted:* ${requiredKAS.toFixed(4)} KAS`;
+      return await settleBillWithKas(user, requiredKAS, () => BillPayService.buyData(targetPhone, amountNaira, network));
     }
 
 
@@ -532,11 +557,7 @@ export const ChatbotService = {
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
       const requiredKAS = await nairaToKAS(amountNaira);
       if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-      const result = await BillPayService.payElectricity(meterNumber, amountNaira, provider);
-      if (!result.success) return result.message;
-      user.balance -= requiredKAS;
-      await user.save();
-      return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
+      return await settleBillWithKas(user, requiredKAS, () => BillPayService.payElectricity(meterNumber, amountNaira, provider));
     }
 
 
@@ -550,11 +571,7 @@ export const ChatbotService = {
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
       const requiredKAS = await nairaToKAS(amountNaira);
       if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-      const result = await BillPayService.payWater(accountNumber, amountNaira, provider);
-      if (!result.success) return result.message;
-      user.balance -= requiredKAS;
-      await user.save();
-      return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
+      return await settleBillWithKas(user, requiredKAS, () => BillPayService.payWater(accountNumber, amountNaira, provider));
     }
 
 
@@ -568,11 +585,7 @@ export const ChatbotService = {
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
       const requiredKAS = await nairaToKAS(amountNaira);
       if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-      const result = await BillPayService.payCable(smartcardNumber, amountNaira, provider);
-      if (!result.success) return result.message;
-      user.balance -= requiredKAS;
-      await user.save();
-      return result.message + '\nDeducted: ' + requiredKAS.toFixed(4) + ' KAS';
+      return await settleBillWithKas(user, requiredKAS, () => BillPayService.payCable(smartcardNumber, amountNaira, provider));
     }
 
 
