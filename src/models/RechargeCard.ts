@@ -23,7 +23,9 @@ const RechargeCardSchema = new Schema({
   code: { type: String, required: true, unique: true },
   amount: { type: Number, required: true },
   amountNaira: { type: Number },
-  transactionRef: { type: String },
+  // Unique so a repeated payment webhook can never create a second voucher. Sparse because
+  // vouchers created inside WhatsApp have no payment reference.
+  transactionRef: { type: String, unique: true, sparse: true },
   purchasedByPhone: { type: String },
   used: { type: Boolean, default: false },
   usedBy: { type: String },

@@ -74,6 +74,13 @@ export const redeemMerchantVoucher = async (req: Request, res: Response) => {
     }
 
 
+    // Keep the on-chain settlement id on the voucher so every redemption can be audited and reconciled.
+    try {
+      await RechargeCardModel.updateOne({ _id: voucher._id }, { $set: { redeemTxId: result.txId } });
+    } catch (recordError) {
+      console.error(`[Merchant API] Voucher paid on-chain (${result.txId}) but redeemTxId could not be saved:`, recordError);
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Payment successfully processed',

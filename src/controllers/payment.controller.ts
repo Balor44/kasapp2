@@ -4,6 +4,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { RechargeCardModel, IRechargeCard } from '../models/RechargeCard';
 import { nairaToKAS } from '../utils/price';
+import { verifyPaystackSignature } from '../utils/webhookSignature';
 
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || '';
@@ -87,45 +88,56 @@ export const PaymentController = {
   /**
    * 2. Automated Webhook Listener: Paystack
    * Route this to POST /api/webhooks/paystack
+   *
+   * Order of operations matters:
+   *  1. Verify the signature over the exact raw request bytes. Reject with 401 if it fails.
+   *  2. Process the event (create the voucher exactly once).
+   *  3. Only then acknowledge with 200. If processing fails we answer 500 so Paystack retries,
+   *     and the unique transactionRef index makes a retry safe.
    */
   handlePaystackWebhook: async (req: Request, res: Response) => {
-    // Instantly return 200 OK so Paystack doesn't timeout/retry
-    res.sendStatus(200);
+    const rawBody: Buffer | undefined = (req as any).rawBody;
+    const signature = req.headers['x-paystack-signature'] as string | undefined;
 
+    if (!verifyPaystackSignature(rawBody, signature, PAYSTACK_SECRET_KEY)) {
+      console.warn('[Paystack Webhook] Invalid or missing signature. Request rejected.');
+      return res.sendStatus(401);
+    }
 
     try {
-      // Paystack signature verification (HMAC SHA512)
-      const hash = crypto.createHmac('sha512', PAYSTACK_SECRET_KEY)
-                         .update(JSON.stringify(req.body))
-                         .digest('hex');
-                         
-      if (hash !== req.headers['x-paystack-signature']) {
-        console.warn('[Paystack Webhook] Invalid signature detected.');
-        return;
-      }
-
-
       const event = req.body;
 
+      // Other event types are acknowledged and ignored.
+      if (event?.event !== 'charge.success') {
+        return res.sendStatus(200);
+      }
 
-      if (event.event === 'charge.success') {
-        const { amount, reference, metadata } = event.data;
-        const amountNaira = amount / 100; // Convert back from Kobo to Naira
-        const userPhone = metadata?.user_phone || 'Unknown';
+      const { amount, reference, metadata, currency } = event.data || {};
 
+      if (!reference || typeof amount !== 'number' || !(amount > 0)) {
+        console.warn('[Paystack Webhook] charge.success without a usable reference or amount. Ignored.');
+        return res.sendStatus(200);
+      }
 
-        const existingVoucher = await RechargeCardModel.findOne({ transactionRef: reference });
-        if (existingVoucher) {
-          console.log(`[Paystack Webhook] Transaction ${reference} already processed.`);
-          return;
-        }
+      if (currency && currency !== 'NGN') {
+        console.warn(`[Paystack Webhook] Ignoring non NGN payment (${currency}) for ${reference}.`);
+        return res.sendStatus(200);
+      }
 
+      const amountNaira = amount / 100; // Convert back from Kobo to Naira
+      const userPhone = metadata?.user_phone || 'Unknown';
 
-        const kasAmount = await nairaToKAS(amountNaira);
-        const voucherCode = generateVoucherCode();
+      const existingVoucher = await RechargeCardModel.findOne({ transactionRef: reference });
+      if (existingVoucher) {
+        console.log(`[Paystack Webhook] Transaction ${reference} already processed.`);
+        return res.sendStatus(200);
+      }
 
+      const kasAmount = await nairaToKAS(amountNaira);
+      const voucherCode = generateVoucherCode();
 
-        const newVoucher: IRechargeCard = await RechargeCardModel.create({
+      try {
+        const newVoucher = (await RechargeCardModel.create({
           code: voucherCode,
           amount: kasAmount,
           amountNaira: amountNaira,
@@ -133,13 +145,22 @@ export const PaymentController = {
           purchasedByPhone: userPhone,
           used: false,
           createdAt: new Date(),
-        }) as unknown as IRechargeCard;
-
+        })) as unknown as IRechargeCard;
 
         console.log(`[Paystack Voucher Created] Code: ${newVoucher.code} | Value: ${kasAmount} KAS | Phone: ${userPhone}`);
+      } catch (createError: any) {
+        // Duplicate transactionRef: another delivery of the same event won the race. Safe to acknowledge.
+        if (createError?.code === 11000 && createError?.keyPattern?.transactionRef) {
+          console.log(`[Paystack Webhook] Transaction ${reference} was created by a concurrent delivery.`);
+          return res.sendStatus(200);
+        }
+        throw createError;
       }
+
+      return res.sendStatus(200);
     } catch (error: any) {
       console.error('[Paystack Webhook Processing Error]:', error);
+      return res.sendStatus(500);
     }
   },
 

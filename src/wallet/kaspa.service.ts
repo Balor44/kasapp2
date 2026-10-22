@@ -5,6 +5,8 @@ import WebSocket from "isomorphic-ws";
 
 import * as kaspa from "kaspa-wasm";
 import { encryptMnemonic, decryptMnemonic } from "../utils/crypto.utils";
+import { kasToSompi } from "../utils/sompi";
+import { NetworkMismatchError, addressMatchesNetwork, addressPrefixFor, networksMatch } from "../utils/network";
 
 
 const NETWORK = process.env.KASPA_NETWORK || "mainnet";
@@ -14,6 +16,45 @@ const DERIVATION_PATH = "m/44'/111111'/0'/0/0";
 // Default priority fee in Sompi (1 KAS = 100,000,000 Sompi).
 // 10,000 Sompi = 0.0001 KAS (ensures rapid inclusion by mainnet validators)
 const DEFAULT_PRIORITY_FEE = BigInt(process.env.KASPA_PRIORITY_FEE_SOMPI || "10000");
+
+
+/**
+ * Opens an RPC connection and verifies, before anything else happens, that the node is on the
+ * same network the app is configured for. A mismatch throws NetworkMismatchError, so no balance
+ * is read and no transaction is built against the wrong network.
+ *
+ * The resolver option is `networkId` (camelCase) as defined by kaspa-wasm. The previous code
+ * passed `network_id`, which the library does not read, so KASPA_NETWORK was not applied to the
+ * RPC connection.
+ */
+async function connectRpc(options: { requireSynced?: boolean } = {}): Promise<kaspa.RpcClient> {
+  const resolver = new kaspa.Resolver();
+  const rpc = await resolver.connect({
+    networkId: NETWORK,
+    encoding: "borsh",
+  });
+
+  try {
+    const info = await rpc.getServerInfo();
+
+    if (!networksMatch(NETWORK, info.networkId)) {
+      throw new NetworkMismatchError(
+        `Network mismatch: the app is configured for "${NETWORK}" but the connected node reports "${info.networkId}". Refusing to continue.`
+      );
+    }
+
+    if (options.requireSynced && !info.isSynced) {
+      throw new Error("The connected Kaspa node is still syncing. Please try again in a moment.");
+    }
+
+    return rpc;
+  } catch (err) {
+    try {
+      await rpc.disconnect();
+    } catch {}
+    throw err;
+  }
+}
 
 
 export const KaspaService = {
@@ -47,16 +88,27 @@ export const KaspaService = {
   },
 
 
-  getBalance: async (address: string): Promise<number> => {
-    let rpc: any;
+  /**
+   * Confirms the configured network matches the node. Throws NetworkMismatchError on a mismatch.
+   * Any other error (for example the node being unreachable) is thrown as a normal Error.
+   */
+  verifyNetwork: async (): Promise<string> => {
+    const rpc = await connectRpc();
     try {
-      const resolver = new kaspa.Resolver();
-      rpc = await resolver.connect({
-        network_id: NETWORK,
-        encoding: "borsh",
-      } as any);
+      await rpc.disconnect();
+    } catch {}
+    return NETWORK;
+  },
 
 
+  /**
+   * Returns the on-chain balance in KAS.
+   * Throws if the network cannot be reached or is the wrong network. It never returns 0 to
+   * mean "unknown", because callers (ledger sync, invoices, send checks) treat the value as truth.
+   */
+  getBalance: async (address: string): Promise<number> => {
+    const rpc = await connectRpc();
+    try {
       const { entries } = await rpc.getUtxosByAddresses({ addresses: [address] });
 
 
@@ -67,15 +119,10 @@ export const KaspaService = {
 
 
       return Number(totalSompi) / 100000000;
-    } catch (err) {
-      console.error("[Kaspa Balance Error]:", err);
-      return 0;
     } finally {
-      if (rpc) {
-        try {
-          await rpc.disconnect();
-        } catch {}
-      }
+      try {
+        await rpc.disconnect();
+      } catch {}
     }
   },
 
@@ -86,7 +133,7 @@ export const KaspaService = {
     amount: number | string,
     priorityFeeSompi: bigint = DEFAULT_PRIORITY_FEE
   ) => {
-    // 🛡️ Auto-detect if fromMnemonic is an encrypted cipher or plaintext mnemonic
+    // Auto-detect if fromMnemonic is an encrypted cipher or plaintext mnemonic
     let rawMnemonic = fromMnemonic.trim();
     if (!rawMnemonic.includes(" ") && process.env.ENCRYPTION_KEY) {
       try {
@@ -97,15 +144,16 @@ export const KaspaService = {
     }
 
 
+    // Exact integer sompi amount (throws "Invalid transaction amount." before any network call)
+    const sompiAmount = kasToSompi(amount);
+
+
     const senderAddress = deriveAddress(rawMnemonic);
     const privateKey = derivePrivateKey(rawMnemonic);
 
 
-    const resolver = new kaspa.Resolver();
-    const rpc = await resolver.connect({
-      network_id: NETWORK,
-      encoding: "borsh",
-    } as any);
+    // Sends also require a synced node, so UTXO data is current.
+    const rpc = await connectRpc({ requireSynced: true });
 
 
     try {
@@ -117,16 +165,6 @@ export const KaspaService = {
       if (!entries || !entries.length) {
         throw new Error("Wallet has no spendable UTXOs.");
       }
-
-
-      // ===============================================================
-      // 🛡️ LOOPHOLE 5 FIX: Strict 8-Decimal Floating Point Enforcement
-      // ===============================================================
-      const numericAmount = parseFloat(Number(amount).toFixed(8));
-      if (isNaN(numericAmount) || numericAmount <= 0) {
-        throw new Error("Invalid transaction amount.");
-      }
-      const sompiAmount = BigInt(Math.round(numericAmount * 100000000));
 
 
       const generator = new kaspa.Generator({
@@ -178,18 +216,20 @@ export const KaspaService = {
       }
 
 
-      // 🛡️ FIXED: Bypass decryption if mnemonic has spaces (plaintext operator phrase)
+      // Bypass decryption if mnemonic has spaces (plaintext operator phrase)
       let rawMnemonic = senderEncryptedMnemonic.trim();
       if (!rawMnemonic.includes(" ")) {
         rawMnemonic = decryptMnemonic(senderEncryptedMnemonic, encryptionKey);
       }
 
 
-      const isMainnet = recipientAddress.toLowerCase().startsWith("kaspa:");
-      if (!isMainnet && NETWORK === "mainnet") {
+      // The destination must belong to the network the app is configured for.
+      if (!addressMatchesNetwork(recipientAddress, NETWORK)) {
+        const expectedPrefix = addressPrefixFor(NETWORK) + ":";
+        const label = NETWORK === "mainnet" ? "Mainnet" : NETWORK;
         return {
           success: false,
-          error: "Invalid address format. Mainnet addresses must start with 'kaspa:'.",
+          error: `Invalid address format. ${label} addresses must start with '${expectedPrefix}'.`,
         };
       }
 
@@ -234,5 +274,3 @@ function deriveAddress(mnemonic: string): string {
   const keypair = privateKey.toKeypair();
   return keypair.toAddress(NETWORK).toString();
 }
-
-

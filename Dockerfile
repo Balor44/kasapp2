@@ -38,6 +38,10 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/contracts ./contracts
 
 
+# Run as the unprivileged user that ships with the node image, not as root
+USER node
+
+
 # Expose the port Railway/Docker will use
 EXPOSE 3000
 

@@ -557,7 +557,14 @@ router.post(
               }
 
 
-              const userBalance = await KaspaService.getBalance(user.walletAddress || '');
+              let userBalance: number;
+              try {
+                userBalance = await KaspaService.getBalance(user.walletAddress || '');
+              } catch (balanceError) {
+                console.error('[SEND_KAS] Could not read on-chain balance:', balanceError);
+                await WhatsAppService.sendMessage(senderPhone, "⚠️ I couldn't reach the Kaspa network just now, so I can't check your balance safely. Please try again in a minute.");
+                continue;
+              }
               if (Number(amount) > userBalance) {
                 await WhatsAppService.sendMessage(senderPhone, `❌ Insufficient funds. You have ${userBalance} KAS, but tried to send ${amount} KAS.`);
                 continue;

@@ -348,7 +348,7 @@ export const ChatbotService = {
       if (user.balance < amount) return `Insufficient balance. You have *${user.balance.toFixed(4)} KAS*.`;
 
 
-      if (targetRecipient.toLowerCase().startsWith('kaspa:') || targetRecipient.toLowerCase().startsWith('kasptest:')) {
+      if (targetRecipient.toLowerCase().startsWith('kaspa:') || targetRecipient.toLowerCase().startsWith('kaspatest:')) {
         const txResult = await KaspaService.sendExternalTransaction(user.mnemonic, targetRecipient, amount);
         if (!txResult.success) return `❌ *Transfer Failed:* ${txResult.error}`;
         

@@ -39,10 +39,17 @@ import paymentRoutes from './routes/payment.routes';
 import merchantRoutes from './routes/merchant.routes';
 import { redeemMerchantVoucher } from './controllers/merchant.controller';
 import { requireAdminKey } from './middleware/auth.middleware';
+import { parseAllowedOrigins } from './utils/corsOrigins';
+import mongoose from 'mongoose';
+import { redisClient } from './services/userState.service';
 
 
 const app = express();
-app.use(cors());
+
+// CORS: set CORS_ORIGINS to a comma separated list (for example https://mykasapp.com) to restrict
+// browser access. When it is not set the previous behaviour (any origin) is kept.
+const allowedOrigins = parseAllowedOrigins(process.env.CORS_ORIGINS);
+app.use(allowedOrigins ? cors({ origin: allowedOrigins }) : cors());
 
 
 // ==========================================================================
@@ -52,8 +59,18 @@ app.use(cors());
 app.use('/api/whatsapp', whatsappRoutes);
 
 
-// Global JSON parser for all other routes
-app.use(express.json());
+// Global JSON parser for all other routes.
+// The Paystack webhook signature is computed over the exact raw bytes, so keep them for that route only.
+app.use(
+  express.json({
+    limit: '100kb',
+    verify: (req: any, _res: any, buf: Buffer) => {
+      if (typeof req.originalUrl === 'string' && req.originalUrl.startsWith('/api/webhooks/paystack')) {
+        req.rawBody = buf;
+      }
+    },
+  })
+);
 
 
 // ==========================================================================
@@ -78,8 +95,34 @@ app.use('/api', requireAdminKey, messageRoutes);
 app.post(`/api/v1/merchant/redeem`, requireAdminKey, redeemMerchantVoucher);
 
 
+// Liveness: the process is up. Keep this simple so a platform health check never restarts the app
+// because of a temporary database or Redis problem.
 app.get('/health', (_req: any, res: any) => {
   res.json({ status: 'OK', product: 'Kasapp' });
+});
+
+
+// Readiness: critical dependencies are reachable. Returns 503 when something is down.
+app.get('/ready', async (_req: any, res: any) => {
+  const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+    Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+    ]);
+
+  const checks: Record<string, boolean> = {
+    mongo: mongoose.connection.readyState === 1,
+    redis: false,
+  };
+
+  try {
+    checks.redis = (await withTimeout(redisClient.ping(), 2000)) === 'PONG';
+  } catch {
+    checks.redis = false;
+  }
+
+  const ready = Object.values(checks).every(Boolean);
+  res.status(ready ? 200 : 503).json({ status: ready ? 'READY' : 'NOT_READY', checks });
 });
 
 
