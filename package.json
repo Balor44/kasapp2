@@ -8,6 +8,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "npm run build && node --test dist/__tests__/*.test.js",
+    "migrate:seeds": "ts-node src/scripts/encryptSeeds.ts",
+    "migrate:balances": "ts-node src/scripts/migrateBalancesToSompi.ts",
     "deploy": "npm run build && npm run start"
   },
   "repository": {

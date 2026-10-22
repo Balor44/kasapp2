@@ -7,6 +7,8 @@ export interface IUser extends Document {
   wallet?: string;
   mnemonic: string;
   balance: number;
+  balanceSompi?: string;
+  appliedRefs?: string[];
   pin?: string;
 }
 
@@ -17,6 +19,10 @@ const UserSchema = new Schema<IUser>({
   wallet: { type: String },
   mnemonic: { type: String, required: true },
   balance: { type: Number, default: 0 },
+  // Exact balance in whole sompi, as a string. `balance` is kept only for display and old code.
+  balanceSompi: { type: String },
+  // Idempotency references of balance changes already applied (see services/ledger.ts).
+  appliedRefs: { type: [String], default: [] },
   pin: { type: String, default: null }
 });
 

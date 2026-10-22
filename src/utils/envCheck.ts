@@ -101,6 +101,24 @@ export function validateEnvironment(env: Env): EnvReport {
     errors.push('OPERATOR_WALLET_ADDRESS does not match the configured KASPA_NETWORK.');
   }
 
+  const coldAddress = value(env, 'COLD_WALLET_ADDRESS');
+  if (coldAddress && looksLikePlaceholder(coldAddress)) {
+    errors.push('COLD_WALLET_ADDRESS still contains a placeholder value.');
+  } else if (coldAddress && isValidNetworkName(network) && !addressMatchesNetwork(coldAddress, network)) {
+    errors.push('COLD_WALLET_ADDRESS does not match the configured KASPA_NETWORK.');
+  }
+  for (const name of ['MAX_SEND_KAS_PER_TX', 'MAX_SEND_KAS_PER_DAY', 'OPERATOR_MIN_RESERVE_KAS']) {
+    const v = value(env, name);
+    if (v && !/^\d+(\.\d{1,8})?$/.test(v)) errors.push(`${name} must be a plain KAS amount such as 500 or 12.5.`);
+  }
+  if (!value(env, 'MAX_SEND_KAS_PER_DAY')) {
+    warnings.push('MAX_SEND_KAS_PER_DAY is not set. A taken over account can be drained in one go. Set a daily send limit.');
+  }
+  const merchantKeys = value(env, 'MERCHANT_API_KEYS');
+  if (merchantKeys && looksLikePlaceholder(merchantKeys)) {
+    errors.push('MERCHANT_API_KEYS still contains a placeholder value.');
+  }
+
   // --- Integrations (warnings only) ---
   if (!value(env, 'WHATSAPP_APP_SECRET')) {
     warnings.push('WHATSAPP_APP_SECRET is not set. WhatsApp webhook signature checks will reject every message.');

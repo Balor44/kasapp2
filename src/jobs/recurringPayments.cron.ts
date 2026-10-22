@@ -6,7 +6,11 @@ import { sendWhatsAppNotification } from '../services/whatsapp.service';
 import { getKASPriceInNaira } from '../utils/price';
 import { redisClient } from '../services/userState.service';
 import { KaspaService } from '../wallet/kaspa.service';
-import { getOperatorSeed } from '../utils/operator';
+import { acquireLock, releaseLock } from '../utils/lock';
+import { runWithMessage } from '../utils/requestContext';
+import { payBillFromUser } from '../services/payments';
+import { userBalanceSompi, formatBalance } from '../utils/balance';
+import { kasToSompi } from '../utils/sompi';
 
 
 export function calculateNextDueDate(currentDate: Date, frequency: SubscriptionFrequency): Date {
@@ -62,9 +66,9 @@ async function executeUtilityBillPayment(
 export async function processRecurringSubscriptions(): Promise<void> {
   // 🛡️ 1. GLOBAL RUN-LOCK: Prevents multiple servers from running the cron simultaneously
   const lockKey = 'kasapp:cron:recurring_lock';
-  const isLocked = await redisClient.set(lockKey, 'locked', 'EX', 300, 'NX'); // Lock for 5 minutes
-  
-  if (!isLocked) {
+  const lockToken = await acquireLock(redisClient as any, lockKey, 600_000); // token safe, 10 minutes
+
+  if (!lockToken) {
     console.log('[CRON] Another server instance is already running the billing cycle. Skipping.');
     return;
   }
@@ -101,7 +105,7 @@ export async function processRecurringSubscriptions(): Promise<void> {
 
         const user = await UserModel.findOne({ phone: sub.userPhone });
         
-        if (!user || user.balance < sub.amountKas) {
+        if (!user || userBalanceSompi(user) < kasToSompi(sub.amountKas)) {
           lockedSub.consecutiveFailures += 1;
           lockedSub.status = lockedSub.consecutiveFailures >= 3 ? SubscriptionStatus.FAILED_INSUFFICIENT_FUNDS : SubscriptionStatus.ACTIVE;
           
@@ -120,74 +124,50 @@ export async function processRecurringSubscriptions(): Promise<void> {
         }
 
 
-        // 🛡️ 3. ACTUAL ON-CHAIN DEDUCTION
-        // The funds must physically move to the operator wallet to cover the Naira spent
-        let txResult: any = { success: false };
-        try {
-          const operatorWallet = process.env.OPERATOR_WALLET_ADDRESS || '';
-          if (!operatorWallet) throw new Error("Operator wallet configuration missing.");
-          
-          txResult = await KaspaService.sendExternalTransaction(user.mnemonic, operatorWallet, sub.amountKas);
-        } catch (e: any) {
-          txResult = { success: false, error: e.message };
+        // 3. PAY. One stable key per subscription per billing cycle, so a crash, a restart or a second
+        // worker can never charge or buy twice. The payment, the provider call and any refund are
+        // logged operations (see services/payments.ts).
+        const cycleKey = `cron:${sub._id}:${new Date(sub.nextDueDate).getTime()}`;
+        const currentRate = await getKASPriceInNaira();
+        const amountNaira = Math.floor(sub.amountKas * currentRate * 0.95);
+        const kind = ({ ELECTRICITY: 'electricity', AIRTIME: 'airtime', CABLE: 'cable' } as Record<string, string>)[String(sub.billerCategory).toUpperCase()];
+        if (!kind) {
+          lockedSub.status = SubscriptionStatus.FAILED_INSUFFICIENT_FUNDS;
+          await lockedSub.save();
+          continue;
         }
 
-
-        if (!txResult.success) {
-           // Blockchain failure. Rollback the claim lock to try again tomorrow.
-           lockedSub.nextDueDate = calculateNextDueDate(now, SubscriptionFrequency.DAILY);
-           await lockedSub.save();
-           console.error(`[CRON] On-chain deduction failed for ${sub.userPhone}:`, txResult.error);
-           continue; 
-        }
-
-
-        // Sync DB cache only after blockchain success
-        user.balance -= sub.amountKas;
-        await user.save();
-
-
-        // 4. Execute Bill Payment via Live API
-        const billResult = await executeUtilityBillPayment(
-          sub.billerCategory,
-          sub.billerCode,
-          sub.accountNumber,
-          sub.amountKas
+        const outcome = await runWithMessage(cycleKey, () =>
+          payBillFromUser(user, sub.amountKas, {
+            provider: 'FLUTTERWAVE', kind, target: sub.accountNumber, network: sub.billerCode, amountNaira,
+          })
         );
 
-
-        if (billResult.success) {
-          // Success! Set the real next due date
+        if (outcome.status === 'DONE') {
           lockedSub.nextDueDate = calculateNextDueDate(now, sub.frequency);
           lockedSub.lastRunAt = now;
           lockedSub.consecutiveFailures = 0;
           await lockedSub.save();
-
-
+          const fresh = await UserModel.findById(user._id);
           await sendWhatsAppNotification(
             sub.userPhone,
-            `✅ *Auto-Renewal Successful!*\n\n${billResult.message}\n\n💳 *New Balance:* ${user.balance.toFixed(4)} KAS`
+            `✅ *Auto-Renewal Successful!*\n\n${sub.billerCode} (${sub.accountNumber}) paid.\n\n💳 *New Balance:* ${formatBalance(fresh || user)} KAS`
           );
-        } else {
-          // 🛡️ 5. AUTO-REFUND ON VTPASS FAILURE
-          try {
-              await KaspaService.sendKAS(getOperatorSeed(), user.walletAddress || '', sub.amountKas);
-              
-              user.balance += sub.amountKas;
-              await user.save();
-          } catch (refundError) {
-              console.error(`[FATAL CRON REFUND] Failed to refund ${sub.userPhone}:`, refundError);
-          }
-
-
-          lockedSub.consecutiveFailures += 1;
-          lockedSub.nextDueDate = calculateNextDueDate(now, SubscriptionFrequency.DAILY); // Try again tomorrow
+        } else if (outcome.status === 'PENDING') {
+          // Outcome not known yet. The reconciler settles it and refunds automatically on proven failure.
+          lockedSub.nextDueDate = calculateNextDueDate(now, sub.frequency);
+          lockedSub.lastRunAt = now;
           await lockedSub.save();
-
-
+          await sendWhatsAppNotification(sub.userPhone, `⏳ Your ${sub.billerCode} renewal is being confirmed. You will not be charged twice.`);
+        } else {
+          lockedSub.consecutiveFailures += 1;
+          lockedSub.nextDueDate = calculateNextDueDate(now, SubscriptionFrequency.DAILY); // try again tomorrow
+          await lockedSub.save();
           await sendWhatsAppNotification(
             sub.userPhone,
-            `❌ *Auto-Renewal Failed*\n\nWe couldn't process your ${sub.billerCode} payment right now. The provider might be down. \n\nYour *${sub.amountKas} KAS* has been instantly refunded to your wallet.\n\n_Reason: ${billResult.message}_`
+            outcome.reason === 'INSUFFICIENT'
+              ? `⚠️ *Auto-Renewal Failed*\n\nNot enough balance for your ${sub.billerCode} renewal. Please top up your wallet.`
+              : `❌ *Auto-Renewal Failed*\n\nWe couldn't process your ${sub.billerCode} payment right now. Any KAS taken has been returned to your wallet.`
           );
         }
       } catch (err) {
@@ -196,7 +176,7 @@ export async function processRecurringSubscriptions(): Promise<void> {
     }
   } finally {
     // Release the master run-lock when the cron is totally finished
-    await redisClient.del(lockKey);
+    await releaseLock(redisClient as any, lockKey, lockToken);
   }
 
 

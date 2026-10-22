@@ -56,7 +56,7 @@ function makeKaspa(scenario: Scenario) {
     async next() {
       if (this.finished) return null;
       this.finished = true;
-      return { sign: () => {}, submit: async () => 'tx-abc123' };
+      return { id: 'tx-abc123', getUtxoEntries: () => [], sign: () => {}, submit: async () => 'tx-abc123' };
     }
   }
 

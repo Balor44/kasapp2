@@ -6,6 +6,8 @@ const FLUTTERWAVE_BASE_URL = 'https://api.flutterwave.com/v3';
 
 
 export interface BillPayResponse {
+  /** True when the provider may have processed the request (timeout, no response). Never refund on this. */
+  unknown?: boolean;
   success: boolean;
   message: string;
   reference?: string;
@@ -66,11 +68,31 @@ export const CABLE_PROVIDERS: Record<string, string> = {
 
 
 export const BillPayService = {
+
+  /**
+   * Looks a bill up by the reference it was sent with. A timeout on the original call is not a
+   * failure, so this is how an unknown outcome gets resolved. Anything unclear stays PENDING.
+   */
+  status: async (reference: string): Promise<'DELIVERED' | 'FAILED' | 'PENDING'> => {
+    try {
+      const response = await axios.get(`${FLUTTERWAVE_BASE_URL}/bills/${encodeURIComponent(reference)}`, {
+        headers: { Authorization: `Bearer ${FLUTTERWAVE_SECRET_KEY}` },
+        timeout: 20000,
+      });
+      const state = String(response.data?.data?.status || response.data?.data?.processing_status || '').toLowerCase();
+      if (['successful', 'success', 'completed', 'delivered'].includes(state)) return 'DELIVERED';
+      if (['failed', 'reversed', 'cancelled'].includes(state)) return 'FAILED';
+      return 'PENDING';
+    } catch (error: any) {
+      // A 404 right after a timeout can mean "not created yet", so it is not proof of failure either.
+      return 'PENDING';
+    }
+  },
   
   /**
    * 1. BUY AIRTIME (MTN, Airtel, Glo, 9mobile)
    */
-  buyAirtime: async (phone: string, amountNaira: number, network: string): Promise<BillPayResponse> => {
+  buyAirtime: async (phone: string, amountNaira: number, network: string, reference?: string): Promise<BillPayResponse> => {
     try {
       const providerCode = NETWORK_PROVIDERS[network.toUpperCase()];
       if (!providerCode) {
@@ -78,7 +100,7 @@ export const BillPayService = {
       }
 
 
-      const txRef = `KASAPP-AIRTIME-${Date.now()}`;
+      const txRef = reference || `KASAPP-AIRTIME-${Date.now()}`;
 
 
       const response = await axios.post(
@@ -99,7 +121,7 @@ export const BillPayService = {
       }
     } catch (error: any) {
       console.error('[BillPay Airtime Error]:', error.response?.data || error.message);
-      return { success: false, message: '❌ Bill payment gateway error. Please try again in a few moments.' };
+      return { success: false, unknown: !error.response, message: '❌ Bill payment gateway error. Please try again in a few moments.' };
     }
   },
 
@@ -107,7 +129,7 @@ export const BillPayService = {
   /**
    * 2. BUY MOBILE DATA BUNDLES (MTN, Airtel, Glo, 9mobile)
    */
-  buyData: async (phone: string, amountNaira: number, network: string): Promise<BillPayResponse> => {
+  buyData: async (phone: string, amountNaira: number, network: string, reference?: string): Promise<BillPayResponse> => {
     try {
       const provider = DATA_PROVIDERS[network.toUpperCase()];
       if (!provider) {
@@ -115,7 +137,7 @@ export const BillPayService = {
       }
 
 
-      const txRef = `KASAPP-DATA-${Date.now()}`;
+      const txRef = reference || `KASAPP-DATA-${Date.now()}`;
 
 
       const response = await axios.post(
@@ -136,7 +158,7 @@ export const BillPayService = {
       }
     } catch (error: any) {
       console.error('[BillPay Data Error]:', error.response?.data || error.message);
-      return { success: false, message: '❌ Mobile data provider network busy. Please try again shortly.' };
+      return { success: false, unknown: !error.response, message: '❌ Mobile data provider network busy. Please try again shortly.' };
     }
   },
 
@@ -144,7 +166,7 @@ export const BillPayService = {
   /**
    * 3. PAY ELECTRICITY (All 11 Nigerian DisCos)
    */
-  payElectricity: async (meterNumber: string, amountNaira: number, providerKey: string): Promise<BillPayResponse> => {
+  payElectricity: async (meterNumber: string, amountNaira: number, providerKey: string, reference?: string): Promise<BillPayResponse> => {
     try {
       const provider = ELECTRICITY_PROVIDERS[providerKey.toUpperCase()];
       if (!provider) {
@@ -153,7 +175,7 @@ export const BillPayService = {
       }
 
 
-      const txRef = `KASAPP-ELEC-${Date.now()}`;
+      const txRef = reference || `KASAPP-ELEC-${Date.now()}`;
 
 
       const response = await axios.post(
@@ -176,7 +198,7 @@ export const BillPayService = {
       }
     } catch (error: any) {
       console.error('[BillPay Electricity Error]:', error.response?.data || error.message);
-      return { success: false, message: '❌ Failed to process electricity token. Check meter number and try again.' };
+      return { success: false, unknown: !error.response, message: '❌ Failed to process electricity token. Check meter number and try again.' };
     }
   },
 
@@ -184,7 +206,7 @@ export const BillPayService = {
   /**
    * 4. PAY CABLE TV (DSTV, GOTV, StarTimes, Showmax)
    */
-  payCable: async (smartcardNumber: string, amountNaira: number, providerKey: string): Promise<BillPayResponse> => {
+  payCable: async (smartcardNumber: string, amountNaira: number, providerKey: string, reference?: string): Promise<BillPayResponse> => {
     try {
       const billCode = CABLE_PROVIDERS[providerKey.toUpperCase()];
       if (!billCode) {
@@ -192,7 +214,7 @@ export const BillPayService = {
       }
 
 
-      const txRef = `KASAPP-CABLE-${Date.now()}`;
+      const txRef = reference || `KASAPP-CABLE-${Date.now()}`;
 
 
       const response = await axios.post(
@@ -213,7 +235,7 @@ export const BillPayService = {
       }
     } catch (error: any) {
       console.error('[BillPay Cable Error]:', error.response?.data || error.message);
-      return { success: false, message: '❌ Cable subscription failed. Please verify your Smartcard/IUC number.' };
+      return { success: false, unknown: !error.response, message: '❌ Cable subscription failed. Please verify your Smartcard/IUC number.' };
     }
   },
 
@@ -221,9 +243,9 @@ export const BillPayService = {
   /**
    * 5. PAY WATER BILLS (LSWC, etc.)
    */
-  payWater: async (accountNumber: string, amountNaira: number, providerKey: string): Promise<BillPayResponse> => {
+  payWater: async (accountNumber: string, amountNaira: number, providerKey: string, reference?: string): Promise<BillPayResponse> => {
     try {
-      const txRef = `KASAPP-WATER-${Date.now()}`;
+      const txRef = reference || `KASAPP-WATER-${Date.now()}`;
 
 
       const response = await axios.post(
@@ -244,7 +266,7 @@ export const BillPayService = {
       }
     } catch (error: any) {
       console.error('[BillPay Water Error]:', error.response?.data || error.message);
-      return { success: false, message: '❌ Water bill payment error. Please check your account number and try again.' };
+      return { success: false, unknown: !error.response, message: '❌ Water bill payment error. Please check your account number and try again.' };
     }
   },
 };

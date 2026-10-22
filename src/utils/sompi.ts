@@ -39,3 +39,37 @@ export function kasToSompi(amount: number | string): bigint {
   if (sompi <= 0n || sompi > MAX_SOMPI) throw new Error(INVALID_AMOUNT);
   return sompi;
 }
+
+
+/** Parses a non negative integer string (as stored in MongoDB) into a BigInt. Throws on anything else. */
+export function parseSompiString(value: unknown): bigint {
+  if (typeof value === 'bigint') {
+    if (value < 0n) throw new Error('Invalid sompi amount.');
+    return value;
+  }
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) throw new Error('Invalid sompi amount.');
+  return BigInt(value);
+}
+
+/** Exact KAS text for a sompi amount, for example 150000000n gives "1.5" and 0n gives "0". */
+export function sompiToKasString(sompi: bigint): string {
+  const negative = sompi < 0n;
+  const abs = negative ? -sompi : sompi;
+  const whole = abs / SOMPI_PER_KAS;
+  const fraction = (abs % SOMPI_PER_KAS).toString().padStart(8, '0').replace(/0+$/, '');
+  return `${negative ? '-' : ''}${whole}${fraction ? '.' + fraction : ''}`;
+}
+
+/** KAS text cut (not rounded) to a fixed number of decimals, for messages shown to people. */
+export function formatKas(sompi: bigint, decimals = 4): string {
+  const negative = sompi < 0n;
+  const abs = negative ? -sompi : sompi;
+  const whole = abs / SOMPI_PER_KAS;
+  const fraction = (abs % SOMPI_PER_KAS).toString().padStart(8, '0').slice(0, decimals);
+  return `${negative ? '-' : ''}${whole}${decimals > 0 ? '.' + fraction : ''}`;
+}
+
+/** Approximate KAS as a JS number. For display and legacy fields only, never for money decisions. */
+export function sompiToKasNumber(sompi: bigint): number {
+  return Number(sompi) / 100_000_000;
+}

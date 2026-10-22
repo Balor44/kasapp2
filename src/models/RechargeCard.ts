@@ -16,6 +16,10 @@ export interface IRechargeCard extends Document {
   vaultAddress?: string;
   fundingTxId?: string;
   redeemTxId?: string;
+  creditedAt?: Date;
+  claimState?: 'CLAIMED' | 'PAYOUT' | 'FUNDING' | 'MERCHANT';
+  merchantAddress?: string;
+  merchantName?: string;
 }
 
 
@@ -35,7 +39,13 @@ const RechargeCardSchema = new Schema({
   // --- NEW COVENANT FIELDS (Made Optional) ---
   vaultAddress: { type: String },
   fundingTxId: { type: String },
-  redeemTxId: { type: String }
+  redeemTxId: { type: String },
+  // Set when a redeemed voucher has been credited to the user's balance (see services/vouchers.ts).
+  creditedAt: { type: Date },
+  // Marks vouchers claimed by the new flow, so recovery never touches vouchers redeemed before it existed.
+  claimState: { type: String },
+  merchantAddress: { type: String },
+  merchantName: { type: String }
 });
 
 

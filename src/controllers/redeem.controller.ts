@@ -1,53 +1,32 @@
 import { Request, Response } from 'express';
 import { UserModel } from '../models/User';
-import { RechargeCardModel } from '../models/RechargeCard';
 import { normalizePhone } from '../utils/phone';
 import { normalizeVoucherCode } from '../utils/voucherCode';
+import { formatBalance } from '../utils/balance';
+import { formatKas } from '../utils/sompi';
+import { redeemToUser } from '../services/vouchers';
 
 export const redeemCard = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { phone: rawPhone, code: rawCode } = req.body;
-    const phone = normalizePhone(rawPhone);
-    const code = normalizeVoucherCode(rawCode);
-    console.log('[REDEEM DEBUG] rawPhone:', rawPhone, 'rawCode:', rawCode);
-    console.log('[REDEEM DEBUG] normalized phone:', phone, 'code:', code, 'codeLength:', code?.length);
+    const phone = normalizePhone(req.body.phone);
+    const code = normalizeVoucherCode(req.body.code);
 
-    if (!phone || !code || code.length !== 14) { 
-      console.log('[REDEEM REJECTED] Validation check failed');
-      res.status(400).json({ error: 'phone and code are required' }); 
-      return; 
+    if (!phone || !code || code.length !== 14) {
+      res.status(400).json({ error: 'phone and code are required' });
+      return;
     }
+
+    const result = await redeemToUser(code, phone);
+    if (result.status === 'NO_USER') { res.status(404).json({ error: 'User not found' }); return; }
+    if (result.status === 'INVALID') { res.status(404).json({ error: 'Invalid or already used code' }); return; }
 
     const user = await UserModel.findOne({ phone });
-    console.log('[REDEEM DEBUG] user found:', !!user);
-    if (!user) { 
-      console.log('[REDEEM REJECTED] Phone number not found in DB:', phone);
-      res.status(404).json({ error: 'User not found' }); 
-      return; 
-    }
-
-    const card = await RechargeCardModel.findOneAndUpdate(
-      { code, used: false },
-      { $set: { used: true, usedBy: phone, usedAt: new Date() } },
-      { new: true }
-    );
-    console.log('[REDEEM DEBUG] card query result:', card);
-    if (!card) { 
-      console.log('[REDEEM REJECTED] MongoDB query for card returned null:', code);
-      res.status(404).json({ error: 'Invalid or already used code' }); 
-      return; 
-    }
-
-    user.balance += card.amount;
-    await user.save();
-
     res.json({
-      credited: card.amount.toFixed(4) + ' KAS',
-      newBalance: user.balance.toFixed(4) + ' KAS',
+      credited: formatKas(result.creditedSompi!) + ' KAS',
+      newBalance: (user ? formatBalance(user) : '0.0000') + ' KAS',
     });
   } catch (error: any) {
-    console.error('[REDEEM ERROR]', error);
-    res.status(500).json({ error: error.message || 'Server error' });
+    console.error('[REDEEM ERROR]', error?.message);
+    res.status(500).json({ error: 'Server error' });
   }
 };
-

@@ -14,6 +14,9 @@ import { VtpassService } from '../services/vtpass.service';
 import { PriceService } from '../services/price.service';
 import { getOperatorSeed } from '../utils/operator';
 import { normalizePhone } from '../utils/phone';
+import { acquireLock, releaseLock } from '../utils/lock';
+import { enterMessage } from '../utils/requestContext';
+import { payBillFromUser } from '../services/payments';
 
 
 const router = Router();
@@ -86,6 +89,7 @@ router.post(
           const rawSenderPhone = message.from;
           const senderPhone = normalizePhone(rawSenderPhone); // 🛡️ Normalized everywhere for Redis & Mongo consistency
           const messageId = message.id;
+          enterMessage(messageId); // money code derives its idempotency keys from this
 
 
           // Anti-Replay Guard
@@ -271,8 +275,9 @@ router.post(
 
               // Distributed Mutex Lock per phone
               const lockKey = `kasapp:tx_lock:${senderPhone}`;
-              const isLocked = await redisClient.set(lockKey, 'locked', 'EX', 15, 'NX');
-              if (!isLocked) {
+              // Token based lock: only the holder can release it, and it outlives a slow payment.
+              const lockToken = await acquireLock(redisClient as any, lockKey, 180_000);
+              if (!lockToken) {
                 await WhatsAppService.sendMessage(senderPhone, '⏳ Processing in progress... Please wait a few seconds before trying again.');
                 continue;
               }
@@ -377,94 +382,54 @@ router.post(
                   );
 
 
-                  let paymentResult: any = { success: false };
-                  try {
-                    const operatorWallet = process.env.OPERATOR_WALLET_ADDRESS || '';
-                    if (!operatorWallet) throw new Error('Operator wallet configuration missing.');
+                  const billKind = userState.intent === 'BUY_AIRTIME' ? 'airtime'
+                    : userState.intent === 'BUY_DATA' ? 'data'
+                    : userState.intent === 'PAY_ELECTRICITY' ? 'electricity' : 'cable';
 
+                  const outcome = await payBillFromUser(user, kasCost, {
+                    provider: 'VTPASS',
+                    kind: billKind,
+                    network: provider,
+                    target,
+                    amountNaira: amountNgn,
+                    variationCode: userState.selectedVariationCode,
+                    customerPhone: userState.intent === 'PAY_ELECTRICITY' ? senderPhone : formattedPhone,
+                  });
 
-                    const txIdResult = await KaspaService.sendExternalTransaction(user.mnemonic, operatorWallet, kasCost);
-                    if (txIdResult.success) {
-                      paymentResult = { success: true, txId: txIdResult.txId };
-                    } else {
-                      paymentResult = { success: false, error: txIdResult.error };
-                    }
-                  } catch (e: any) {
-                    paymentResult = { success: false, error: e.message };
-                  }
+                  await clearUserState(senderPhone);
 
-
-                  if (!paymentResult.success) {
-                    await clearUserState(senderPhone);
+                  if (outcome.status === 'REJECTED') {
                     await WhatsAppService.sendMessage(
                       senderPhone,
-                      `❌ Payment Failed. Your KAS was not deducted. Details: ${paymentResult.error}`
+                      outcome.reason === 'INSUFFICIENT'
+                        ? `❌ Not enough balance. You need ${kasCost} KAS.`
+                        : `❌ Payment failed. ${outcome.message || ''}`.trim()
                     );
-                    continue;
-                  }
-
-
-                  await WhatsAppService.sendMessage(
-                    senderPhone,
-                    `✅ KAS payment complete (TXID: ${paymentResult.txId}). Fetching utility from ${provider}...`
-                  );
-
-
-                  let vtpassResult: any = { success: false, message: 'Unknown error' };
-                  if (userState.intent === 'BUY_AIRTIME' || userState.intent === 'BUY_DATA') {
-                    vtpassResult = await VtpassService.buyAirtimeOrData(provider, target!, amountNgn, userState.selectedVariationCode);
-                  } else if (userState.intent === 'PAY_ELECTRICITY') {
-                    vtpassResult = await VtpassService.payElectricity(provider, target!, amountNgn, senderPhone);
-                  } else if (userState.intent === 'BUY_TV') {
-                    vtpassResult = await VtpassService.payTv(provider, target!, amountNgn, formattedPhone);
-                  }
-
-
-                  if (vtpassResult.success) {
+                  } else if (outcome.status === 'PENDING') {
+                    await WhatsAppService.sendMessage(
+                      senderPhone,
+                      `⏳ Your ${provider} payment is being confirmed. You will not be charged twice, and if it fails your KAS is returned automatically.`
+                    );
+                  } else {
                     const typeMap = { BUY_AIRTIME: 'AIRTIME', BUY_DATA: 'DATA', PAY_ELECTRICITY: 'ELECTRICITY', BUY_TV: 'TV' } as const;
                     const beautifulReceipt = ReceiptService.formatBillReceipt({
                       type: typeMap[userState.intent as keyof typeof typeMap],
                       provider: provider,
                       target: target || 'Unknown Target',
                       amountNgn,
-                      reference: vtpassResult.reference,
-                      token: vtpassResult.token || null,
+                      reference: outcome.op.providerRef,
+                      token: null,
                       kasDeducted: kasCost
                     });
-
-
-                    await clearUserState(senderPhone);
                     await WhatsAppService.sendInteractiveButtons(senderPhone, beautifulReceipt, [
                       { id: 'menu_wallet', title: '🔐 Check Balance' },
                       { id: 'menu_bills', title: '📱 Pay Bills' }
                     ]);
-                    continue;
-                  } else {
-                    await clearUserState(senderPhone);
-                    await WhatsAppService.sendMessage(
-                      senderPhone,
-                      `❌ Provider Error: ${vtpassResult.message}\n\n🔄 Automatically refunding ${kasCost} KAS back to your wallet...`
-                    );
-
-
-                    try {
-                      const refundTxId = await KaspaService.sendKAS(getOperatorSeed(), user.walletAddress || '', kasCost);
-                      await WhatsAppService.sendMessage(
-                        senderPhone,
-                        `✅ Refund complete! ${kasCost} KAS has been safely returned to your wallet.\nTXID: \`${refundTxId}\``
-                      );
-                    } catch (refundError: any) {
-                      console.error(`[FATAL] Auto-Refund Failed for ${senderPhone}:`, refundError);
-                      await WhatsAppService.sendMessage(
-                        senderPhone,
-                        `⚠️ Snag processing refund. Support notified to return your ${kasCost} KAS manually.`
-                      );
-                    }
-                    continue;
                   }
+                  continue;
                 }
               } finally {
-                await redisClient.del(lockKey);
+                await releaseLock(redisClient as any, lockKey, lockToken);
               }
             }
 

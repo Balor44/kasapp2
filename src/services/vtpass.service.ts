@@ -14,9 +14,37 @@ export const VtpassService = {
    * Generates a unique 12+ character request ID required by VTpass
    */
   generateRequestId: (): string => {
-    const timestamp = new Date().toISOString().replace(/[-T:.Z]/g, '');
-    const randomString = crypto.randomBytes(4).toString('hex');
-    return `${timestamp}${randomString}`;
+    // VTpass requires the first 12 characters to be the current date and time (YYYYMMDDHHmm)
+    // in Africa/Lagos, and rejects or mis-files ids that are not. The rest makes it unique.
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(new Date());
+    const get = (t: string) => parts.find((x) => x.type === t)?.value ?? '00';
+    const hour = get('hour') === '24' ? '00' : get('hour');
+    const stamp = `${get('year')}${get('month')}${get('day')}${hour}${get('minute')}`;
+    return `${stamp}${crypto.randomBytes(6).toString('hex')}`;
+  },
+
+
+  /**
+   * Asks VTpass what happened to a request id. A request that never reached them is a real
+   * failure only when they say so. A network error or a pending status is NOT a failure.
+   */
+  requery: async (requestId: string): Promise<'DELIVERED' | 'FAILED' | 'PENDING'> => {
+    try {
+      const response = await axios.post(
+        `${VTPASS_BASE_URL}/requery`,
+        { request_id: requestId },
+        { headers: { 'api-key': VTPASS_API_KEY, 'secret-key': VTPASS_SECRET_KEY }, timeout: 20000 }
+      );
+      const status = String(response.data?.content?.transactions?.status || '').toLowerCase();
+      if (status === 'delivered') return 'DELIVERED';
+      if (status === 'failed' || status === 'reversed') return 'FAILED';
+      return 'PENDING'; // initiated, pending, processing, or an unrecognised answer: keep waiting
+    } catch {
+      return 'PENDING';
+    }
   },
 
 
@@ -81,7 +109,7 @@ export const VtpassService = {
       return { success: false, message: 'Could not fetch data plans from provider.' };
     } catch (error: any) {
       console.error('[VTpass Variations Error]:', error.message);
-      return { success: false, message: 'Provider network is currently unavailable.' };
+      return { success: false, unknown: !error.response, message: 'Provider network is currently unavailable.' };
     }
   },
 
@@ -89,10 +117,10 @@ export const VtpassService = {
   /**
    * Purchase Airtime or Data (Sandbox Mode)
    */
-  buyAirtimeOrData: async (provider: string, phone: string, amount: number, variationCode?: string) => {
+  buyAirtimeOrData: async (provider: string, phone: string, amount: number, variationCode?: string, requestIdOverride?: string) => {
     const isData = !!variationCode;
     const serviceID = VtpassService.getServiceID(provider, isData ? 'DATA' : 'AIRTIME');
-    const requestId = VtpassService.generateRequestId();
+    const requestId = requestIdOverride || VtpassService.generateRequestId();
 
 
     const payload: any = {
@@ -138,7 +166,7 @@ export const VtpassService = {
       }
     } catch (error: any) {
       console.error('[VTpass Sandbox Error]:', error.response?.data || error.message);
-      return { success: false, message: 'Provider network is currently unavailable.' };
+      return { success: false, unknown: !error.response, message: 'Provider network is currently unavailable.' };
     }
   },
 
@@ -146,9 +174,9 @@ export const VtpassService = {
   /**
    * Purchase Electricity Token (Sandbox Mode)
    */
-  payElectricity: async (provider: string, meterNumber: string, amount: number, customerPhone: string) => {
+  payElectricity: async (provider: string, meterNumber: string, amount: number, customerPhone: string, requestIdOverride?: string) => {
     const serviceID = VtpassService.getServiceID(provider, 'ELECTRICITY');
-    const requestId = VtpassService.generateRequestId();
+    const requestId = requestIdOverride || VtpassService.generateRequestId();
 
 
     try {
@@ -191,7 +219,7 @@ export const VtpassService = {
       }
     } catch (error: any) {
       console.error('[VTpass Electricity Sandbox Error]:', error.response?.data || error.message);
-      return { success: false, message: 'Electricity provider is currently unreachable.' };
+      return { success: false, unknown: !error.response, message: 'Electricity provider is currently unreachable.' };
     }
   },
 
@@ -199,9 +227,9 @@ export const VtpassService = {
   /**
    * Pay Cable TV (Sandbox Mode)
    */
-  payTv: async (provider: string, smartcard: string, amount: number, phone: string) => {
+  payTv: async (provider: string, smartcard: string, amount: number, phone: string, requestIdOverride?: string) => {
     const serviceID = provider.toLowerCase();
-    const requestId = VtpassService.generateRequestId();
+    const requestId = requestIdOverride || VtpassService.generateRequestId();
 
 
     let variation_code = 'dstv-padi';
@@ -248,7 +276,7 @@ export const VtpassService = {
       }
     } catch (error: any) {
       console.error('[VTpass Crash Error]:', error.response?.data || error.message);
-      return { success: false, message: 'Provider network is currently unavailable.' };
+      return { success: false, unknown: !error.response, message: 'Provider network is currently unavailable.' };
     }
   }
 };

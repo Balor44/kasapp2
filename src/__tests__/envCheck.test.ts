@@ -17,6 +17,7 @@ const good = () => ({
   FLUTTERWAVE_SECRET_KEY: 'FLWSECK-live-abc',
   VTPASS_BASE_URL: 'https://vtpass.com/api',
   CORS_ORIGINS: 'https://mykasapp.com',
+  MAX_SEND_KAS_PER_DAY: '1000',
 });
 
 describe('validateEnvironment', () => {
@@ -119,5 +120,15 @@ describe('validateEnvironment', () => {
     const text = JSON.stringify(validateEnvironment(env));
     assert.ok(!text.includes('your_secret_placeholder'));
     assert.ok(!text.includes('"1234"'));
+  });
+
+  it('rejects a cold wallet on the wrong network and bad limit values, and warns without a daily limit', () => {
+    const wrong: any = { ...good(), COLD_WALLET_ADDRESS: 'kaspatest:qqcold' };
+    assert.ok(validateEnvironment(wrong).errors.some((e) => e.includes('COLD_WALLET_ADDRESS')));
+    const bad: any = { ...good(), MAX_SEND_KAS_PER_TX: 'lots' };
+    assert.ok(validateEnvironment(bad).errors.some((e) => e.includes('MAX_SEND_KAS_PER_TX')));
+    const none: any = good();
+    delete none.MAX_SEND_KAS_PER_DAY;
+    assert.ok(validateEnvironment(none).warnings.some((w) => w.includes('MAX_SEND_KAS_PER_DAY')));
   });
 });

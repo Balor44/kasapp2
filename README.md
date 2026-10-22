@@ -71,11 +71,26 @@ Health endpoints:
 *   Set `CORS_ORIGINS` so only your own website can call the public API from a browser.
 *   Never commit `.env`. Treat the operator seed phrase as the most sensitive value you have.
 
-Known gaps, so nobody is surprised:
+How money is kept safe from crashes:
 
-*   There is no automatic reconciliation worker. If the server crashes between taking funds and finishing a payout or provider call, the record needs a manual check.
-*   User balances are stored as floating point numbers in MongoDB. On chain amounts use exact integer sompi.
-*   All payouts and refunds come from one operator hot wallet.
+*   Every payment, bill purchase, voucher payout and refund is an **operation** stored in MongoDB (`Operation` model). The transaction id is saved before it is broadcast, so after a crash the app looks the transaction up on chain instead of guessing.
+*   A reconciler runs on start and every 30 seconds and finishes anything left open. It refunds only when failure is proven: the provider said failed, or the transaction was never seen and its inputs are still unspent after `OP_SETTLE_MS`. A timeout, an unreachable node or an unclear answer is never treated as a failure.
+*   Anything it cannot decide goes to `NEEDS_REVIEW` and alerts the admin on WhatsApp. Nothing is paid or refunded automatically from that state.
+*   Balances are exact integers (`balanceSompi`). Each credit and debit carries a reference that is stored in the same atomic update, so a retry can never apply twice.
+*   VTpass request ids carry the Lagos date as VTpass requires, and bill purchases use one stable reference per operation, so a retry cannot buy twice.
+
+Upgrading an existing database (take a backup first, both commands are dry runs until you add `--apply`):
+
+    npm run migrate:balances
+    npm run migrate:seeds
+
+Known limits, so nobody is surprised:
+
+*   The balance shown in the database is a cache of the user's on chain wallet. Credits that exist only in the database (a voucher redeemed through the REST API) are replaced by the chain balance the next time the user runs a balance sync. Use WhatsApp redemption, which pays on chain.
+*   One operator hot wallet pays everything. Set `OPERATOR_MIN_RESERVE_KAS`, keep only a few days of float in it, and move the rest with `/admin sweep` to a cold wallet whose seed is never on the server (`COLD_WALLET_ADDRESS`).
+*   Seeds are encrypted with one `ENCRYPTION_KEY`. Anyone with the database and that key can spend user funds. This is a custodial design.
+*   Set `MAX_SEND_KAS_PER_DAY` and `MAX_SEND_KAS_PER_TX`.
+*   Test on testnet with crash injection (kill the server right after a send, and while a provider call is in flight) before using real money.
 *   Report vulnerabilities privately by opening a security advisory on GitHub rather than a public issue.
 
 

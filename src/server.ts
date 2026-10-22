@@ -4,6 +4,11 @@ import { initRecurringPaymentsCron } from './jobs/recurringPayments.cron';
 import { KaspaService } from './wallet/kaspa.service';
 import { NetworkMismatchError } from './utils/network';
 import { validateEnvironment } from './utils/envCheck';
+import { engine, startReconciler } from './services/ops';
+import { recoverVouchers, recoverChainRedemptions, recoverVoucherFunding } from './services/vouchers';
+import { raiseAlert } from './services/alert.service';
+import { kasToSompi, formatKas } from './utils/sompi';
+import { log } from './utils/logger';
 
 
 const PORT = process.env.PORT || 3000;
@@ -41,6 +46,35 @@ const start = async () => {
       process.exit(1);
     }
     console.warn(`[Kasapp] Could not reach a Kaspa node to verify the network at startup (it will be checked on every operation): ${error?.message || error}`);
+  }
+
+  // Crash recovery: settle unfinished payments, bill purchases and vouchers, now and every 30 seconds.
+  void engine.sweep().catch((e: any) => log.error('startup reconcile failed', { error: e?.message }));
+  startReconciler(engine, 30_000);
+  const recoverAll = async () => {
+    try {
+      await recoverVoucherFunding();
+      await recoverChainRedemptions();
+      await recoverVouchers();
+    } catch (e: any) {
+      log.error('voucher recovery failed', { error: e?.message });
+    }
+  };
+  void recoverAll();
+  setInterval(recoverAll, 60_000).unref();
+
+  // Hot wallet monitor: alert the admin before payouts start failing for lack of funds.
+  const operator = (process.env.OPERATOR_WALLET_ADDRESS || '').trim();
+  const lowMark = process.env.OPERATOR_MIN_RESERVE_KAS ? kasToSompi(process.env.OPERATOR_MIN_RESERVE_KAS) : null;
+  if (operator && lowMark !== null) {
+    setInterval(async () => {
+      try {
+        const balance = await KaspaService.getBalanceSompi(operator);
+        if (balance < lowMark) await raiseAlert(`Operator hot wallet is low: ${formatKas(balance)} KAS (reserve ${formatKas(lowMark)} KAS). Voucher and refund payouts may fail.`);
+      } catch {
+        // node unreachable: the next tick tries again
+      }
+    }, 300_000).unref();
   }
 
   app.listen(PORT, () => {

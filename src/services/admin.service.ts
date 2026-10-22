@@ -1,6 +1,11 @@
 import { UserModel } from '../models/User';
 import { SubscriptionModel, SubscriptionStatus } from '../models/Subscription';
 import { KaspaService } from '../wallet/kaspa.service';
+import { userBalanceSompi, formatBalance } from '../utils/balance';
+import { kasToSompi, formatKas } from '../utils/sompi';
+import { sendFromUser } from './payments';
+import { engine } from './ops';
+import { runWithMessage } from '../utils/requestContext';
 
 
 // Set this in your Railway Environment Variables to your personal E.164 number (e.g., +234...)
@@ -24,19 +29,19 @@ export const AdminService = {
       const activeSubs = await SubscriptionModel.countDocuments({ status: SubscriptionStatus.ACTIVE });
       
       const allUsers = await UserModel.find({});
-      const totalUserBalance = allUsers.reduce((sum, user) => sum + user.balance, 0);
+      const totalUserSompi = allUsers.reduce((sum: bigint, user: any) => sum + userBalanceSompi(user), 0n);
 
 
       const adminUser = await UserModel.findOne({ phone: ADMIN_PHONE });
-      const adminBalance = adminUser?.balance || 0;
+      const adminBalanceText = adminUser ? formatBalance(adminUser) : '0.0000';
 
 
       return (
         `📊 *Kasapp Admin Dashboard*\n\n` +
         `👥 *Total Users:* ${totalUsers}\n` +
         `🔄 *Active Auto-Renewals:* ${activeSubs}\n` +
-        `💰 *Global User TVL:* ${totalUserBalance.toFixed(4)} KAS\n\n` +
-        `🏦 *Admin Revenue Balance:* ${adminBalance.toFixed(4)} KAS`
+        `💰 *Global User TVL:* ${formatKas(totalUserSompi)} KAS\n\n` +
+        `🏦 *Admin Revenue Balance:* ${adminBalanceText} KAS`
       );
     }
 
@@ -44,43 +49,53 @@ export const AdminService = {
     // --- /admin withdraw [cold_wallet_address] [amount] ---
     if (command === 'withdraw') {
       const targetAddress = parts[2];
-      const amount = parseFloat(parts[3]);
-
-
-      if (!targetAddress || isNaN(amount) || amount <= 0) {
-        return `Usage: /admin withdraw [kaspa_address] [amount]`;
-      }
-
+      let amountSompi: bigint;
+      try { amountSompi = kasToSompi(parts[3]); } catch { return `Usage: /admin withdraw [kaspa_address] [amount]`; }
+      if (!targetAddress) return `Usage: /admin withdraw [kaspa_address] [amount]`;
 
       const adminUser = await UserModel.findOne({ phone });
-      
-      if (!adminUser || adminUser.balance < amount) {
-        return `❌ Insufficient admin balance. You only have ${adminUser?.balance || 0} KAS available to withdraw.`;
+      if (!adminUser || userBalanceSompi(adminUser) < amountSompi) {
+        return `❌ Insufficient admin balance. You only have ${adminUser ? formatBalance(adminUser) : '0.0000'} KAS available to withdraw.`;
       }
 
+      // Logged payout: restores the balance only if the transfer is proven not to have left.
+      const outcome = await sendFromUser(adminUser, targetAddress, formatKas(amountSompi, 8));
+      if (outcome.status === 'REJECTED') return `❌ *Withdrawal Failed:* ${outcome.message || outcome.reason}`;
+      if (outcome.status === 'PENDING') return `⏳ Withdrawal submitted and being confirmed. It will not be sent twice.`;
 
-      // Execute on-chain withdrawal to your hardware wallet / external exchange
-      const txResult = await KaspaService.sendExternalTransaction(adminUser.mnemonic, targetAddress, amount);
-
-
-      if (!txResult.success) {
-        return `❌ *Withdrawal Failed:* ${txResult.error}`;
-      }
-
-
-      adminUser.balance -= amount;
-      await adminUser.save();
-
-
+      const after = await UserModel.findById(adminUser._id);
       return (
         `✅ *Revenue Safely Withdrawn!*\n\n` +
-        `• *Sent:* ${amount} KAS to cold storage\n` +
-        `• *TXID:* \`${txResult.txId}\`\n\n` +
-        `🏦 *Remaining Revenue:* ${adminUser.balance.toFixed(4)} KAS`
+        `• *Sent:* ${formatKas(amountSompi)} KAS to cold storage\n` +
+        `• *TXID:* \`${outcome.op.txids[outcome.op.txids.length - 1]}\`\n\n` +
+        `🏦 *Remaining Revenue:* ${formatBalance(after || adminUser)} KAS`
       );
     }
 
 
-    return `⚙️ *Admin Commands:*\n• /admin stats\n• /admin withdraw [address] [amount]`;
+    // --- /admin sweep [amount] : move operator hot wallet funds above the reserve to cold storage ---
+    if (command === 'sweep') {
+      const cold = (process.env.COLD_WALLET_ADDRESS || '').trim();
+      const operator = (process.env.OPERATOR_WALLET_ADDRESS || '').trim();
+      if (!cold || !operator) return '❌ COLD_WALLET_ADDRESS or OPERATOR_WALLET_ADDRESS is not configured.';
+      let amountSompi: bigint;
+      try { amountSompi = kasToSompi(parts[2]); } catch { return 'Usage: /admin sweep [amount]'; }
+
+      const reserve = kasToSompi(process.env.OPERATOR_MIN_RESERVE_KAS || '0');
+      const balance = await KaspaService.getBalanceSompi(operator);
+      if (balance - amountSompi < reserve) {
+        return `❌ That would leave the hot wallet below its reserve of ${formatKas(reserve)} KAS. Balance: ${formatKas(balance)} KAS.`;
+      }
+      const key = `sweep:${Date.now()}`;
+      const op = await engine.execute(key, 'PAYOUT', {
+        fromWallet: 'operator', fromAddress: operator, toAddress: cold, amountSompi: amountSompi.toString(),
+      });
+      return op.state === 'CONFIRMED'
+        ? `✅ Swept ${formatKas(amountSompi)} KAS to cold storage.\nTXID: \`${op.txids[op.txids.length - 1]}\``
+        : op.state === 'FAILED' ? `❌ Sweep failed: ${op.lastError}` : `⏳ Sweep submitted (${op.state}). Check again shortly.`;
+    }
+
+
+    return `⚙️ *Admin Commands:*\n• /admin stats\n• /admin withdraw [address] [amount]\n• /admin sweep [amount]`;
   }
 };

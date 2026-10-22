@@ -12,39 +12,29 @@ import { sendWhatsAppNotification } from './whatsapp.service';
 import { decryptMnemonic } from '../utils/crypto.utils';
 import { VaultService } from '../wallet/vault.service';
 import { getOperatorSeed } from '../utils/operator';
+import { kasToSompi, formatKas } from '../utils/sompi';
+import { balanceFields, formatBalance, userBalanceSompi } from '../utils/balance';
+import { sendFromUser, payBillFromUser, hasOpenOperations } from './payments';
+import { redeemOnChain, createVoucher } from './vouchers';
+import { provisionUser } from './user.service';
 
 
-// Settles a utility purchase in real KAS: the user's KAS moves on chain to the
-// operator wallet first, the bill is paid, and on provider failure the KAS is
-// refunded on chain. The database balance only mirrors the chain.
+// Settles a utility purchase in real KAS as a chain of logged operations (see services/payments.ts):
+// the user's KAS moves to the operator wallet, the bill is paid under a stable provider reference, and
+// KAS goes back on chain only if the provider PROVES failure. A timeout is never treated as a failure.
 async function settleBillWithKas(
   user: any,
   requiredKAS: number,
-  pay: () => Promise<{ success: boolean; message: string }>
+  bill: Record<string, any>,
+  successMessage: string
 ): Promise<string> {
-  const operatorWallet = process.env.OPERATOR_WALLET_ADDRESS || '';
-  if (!operatorWallet) return '❌ Payments are temporarily unavailable. Please try again later.';
-
-  const tx = await KaspaService.sendExternalTransaction(user.mnemonic, operatorWallet, requiredKAS);
-  if (!tx.success) return `❌ *Payment Failed.* Your KAS was not deducted.\n${tx.error}`;
-
-  user.balance -= requiredKAS;
-  await user.save();
-
-  const result = await pay();
-  if (result.success) {
-    return `${result.message}\n💳 *Deducted:* ${requiredKAS.toFixed(4)} KAS`;
+  const outcome = await payBillFromUser(user, requiredKAS, bill);
+  if (outcome.status === 'DONE') return `${successMessage}\n💳 *Deducted:* ${requiredKAS.toFixed(4)} KAS`;
+  if (outcome.status === 'PENDING') {
+    return `⏳ *Payment in progress.* We are confirming it with the provider. You will not be charged twice, and if it fails your KAS is returned automatically.`;
   }
-
-  try {
-    await KaspaService.sendKAS(getOperatorSeed(), user.walletAddress || '', requiredKAS);
-    user.balance += requiredKAS;
-    await user.save();
-    return `${result.message}\n\n🔄 ${requiredKAS.toFixed(4)} KAS has been refunded to your wallet.`;
-  } catch (refundError) {
-    console.error(`[FATAL] Bill refund failed for ${user.phone}:`, refundError);
-    return `${result.message}\n\n⚠️ We hit a snag refunding ${requiredKAS.toFixed(4)} KAS. Support has been notified and will return it manually.`;
-  }
+  if (outcome.reason === 'INSUFFICIENT') return `You're a little short on balance for that. You'd need ${requiredKAS.toFixed(4)} KAS.`;
+  return `❌ *Payment failed.* ${outcome.message || ''}`.trim();
 }
 
 export const ChatbotService = {
@@ -85,12 +75,15 @@ export const ChatbotService = {
       
       if (isFinancialCommand) {
         try {
-          const onChainBalance = await KaspaService.getBalance(user.walletAddress);
-          // If mainnet disagrees with Mongo, mainnet wins
-          if (onChainBalance !== user.balance) {
-            user.balance = onChainBalance;
-            await user.save();
-            console.log(`[Ledger Sync] Updated ${user.phone} balance to ${onChainBalance} KAS`);
+          // Skip while money is in flight: the chain still shows funds that are already committed.
+          if (!(await hasOpenOperations(String(user._id)))) {
+            const onChainSompi = await KaspaService.getBalanceSompi(user.walletAddress);
+            // If mainnet disagrees with Mongo, mainnet wins
+            if (onChainSompi !== userBalanceSompi(user)) {
+              Object.assign(user, balanceFields(onChainSompi));
+              await UserModel.updateOne({ _id: user._id }, { $set: balanceFields(onChainSompi) });
+              console.log(`[Ledger Sync] Updated ${user.phone} balance to ${formatKas(onChainSompi)} KAS`);
+            }
           }
         } catch (syncError) {
           console.warn(`[Ledger Sync] Failed to sync ${user.phone} with mainnet. Falling back to DB ledger.`);
@@ -267,23 +260,18 @@ export const ChatbotService = {
 
     if (msg === 'hi' || msg === 'hello' || msg === 'start') {
       if (user) {
-        return "Hey, welcome back! 👋\nYou've got " + user.balance.toFixed(4) + ' KAS sitting in your wallet.\n\nType *help* if you need a reminder of what I can do.';
+        return "Hey, welcome back! 👋\nYou've got " + formatBalance(user) + ' KAS sitting in your wallet.\n\nType *help* if you need a reminder of what I can do.';
       }
-      // 🛡️ ENCRYPTED SEED FIX
-      const { address, encryptedSeed } = await KaspaService.createEncryptedWallet();
-      user = await UserModel.create({
-        phone: internationalFormat,
-        walletAddress: address,
-        mnemonic: encryptedSeed,
-        balance: 0,
-      });
+      user = (await provisionUser(internationalFormat)) || (await UserModel.findOne({ phone: internationalFormat }));
+      if (!user) return 'Something went wrong setting up your wallet. Please try again.';
+      const address = user.walletAddress;
       return "Welcome to Kasapp! 🎉 I just set up a wallet for you.\n\nYour address:\n" + address + "\n\n⚠️ Your wallet is secured using AES encryption. Set a PIN via */setpin* to protect it.";
     }
 
 
     if (msg === '/balance') {
       if (!user) return "Looks like you don't have a wallet yet — just say Hi and I'll set one up for you.";
-      return "Here's where you stand:\n" + user.balance.toFixed(4) + ' KAS';
+      return "Here's where you stand:\n" + formatBalance(user) + ' KAS';
     }
 
 
@@ -342,53 +330,50 @@ export const ChatbotService = {
       }
 
 
-      const amount = parseFloat(amountStr);
-      if (isNaN(amount) || amount <= 0) return 'Please enter a valid KAS amount.';
+      let amountSompi: bigint;
+      try { amountSompi = kasToSompi(amountStr); } catch { return 'Please enter a valid KAS amount.'; }
+      const amount = Number(amountSompi) / 100000000;
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
-      if (user.balance < amount) return `Insufficient balance. You have *${user.balance.toFixed(4)} KAS*.`;
+      if (userBalanceSompi(user) < amountSompi) return `Insufficient balance. You have *${formatBalance(user)} KAS*.`;
 
 
-      if (targetRecipient.toLowerCase().startsWith('kaspa:') || targetRecipient.toLowerCase().startsWith('kaspatest:')) {
-        const txResult = await KaspaService.sendExternalTransaction(user.mnemonic, targetRecipient, amount);
-        if (!txResult.success) return `❌ *Transfer Failed:* ${txResult.error}`;
-        
-        user.balance -= amount;
-        await user.save();
-        return `✅ *On-Chain Transfer Successful!*\n\n• *Sent:* ${amount} KAS\n• *Recipient:* \`${targetRecipient.slice(0, 12)}...${targetRecipient.slice(-6)}\`\n• *TXID:* \`${txResult.txId}\`\n\n💳 *New Balance:* ${user.balance.toFixed(4)} KAS`;
+      const isChainAddress = targetRecipient.toLowerCase().startsWith('kaspa:') || targetRecipient.toLowerCase().startsWith('kaspatest:');
+      let toAddress = targetRecipient;
+      let recipientUser: any = null;
+      let normalizedTargetPhone = '';
+
+      if (!isChainAddress) {
+        normalizedTargetPhone = normalizePhone(targetRecipient);
+        if (!normalizedTargetPhone) return "❌ Invalid phone number. Please include the country code for international numbers.";
+        if (normalizedTargetPhone === senderPhone) return "You can't transfer KAS to your own phone number!";
+        recipientUser = (await UserModel.findOne({ phone: normalizedTargetPhone })) || (await provisionUser(normalizedTargetPhone));
+        if (!recipientUser) return '❌ Could not prepare the recipient wallet. Please try again.';
+        toAddress = recipientUser.walletAddress!;
       }
 
-
-      const normalizedTargetPhone = normalizePhone(targetRecipient);
-      if (!normalizedTargetPhone) return "❌ Invalid phone number. Please include the country code for international numbers.";
-      if (normalizedTargetPhone === senderPhone) return "You can't transfer KAS to your own phone number!";
-
-
-      let recipientUser = await UserModel.findOne({ phone: normalizedTargetPhone });
-      if (!recipientUser) {
-        // 🛡️ ENCRYPTED SEED FIX
-        const { address, encryptedSeed } = await KaspaService.createEncryptedWallet();
-        recipientUser = await UserModel.create({
-          phone: normalizedTargetPhone,
-          walletAddress: address,
-          mnemonic: encryptedSeed,
-          balance: 0,
-        });
+      const outcome = await sendFromUser(user, toAddress, formatKas(amountSompi, 8));
+      if (outcome.status === 'REJECTED') {
+        return outcome.reason === 'INSUFFICIENT'
+          ? `Insufficient balance. You have *${formatBalance(await UserModel.findById(user._id) || user)} KAS*.`
+          : `❌ *Transfer failed.* Your KAS was not deducted.\n${outcome.message || ''}`.trim();
+      }
+      if (outcome.status === 'PENDING') {
+        return '⏳ *Transfer submitted.* We are confirming it on the network. You will not be charged twice, and if it did not go through your KAS is returned automatically.';
       }
 
+      const txId = outcome.op.txids[outcome.op.txids.length - 1];
+      const after = (await UserModel.findById(user._id)) || user;
 
-      const txResult = await KaspaService.sendExternalTransaction(user.mnemonic, recipientUser.walletAddress!, amount);
-      if (!txResult.success) return `❌ *Blockchain Transfer Failed:* ${txResult.error}`;
+      if (isChainAddress) {
+        return `✅ *On-Chain Transfer Successful!*\n\n• *Sent:* ${formatKas(amountSompi)} KAS\n• *Recipient:* \`${targetRecipient.slice(0, 12)}...${targetRecipient.slice(-6)}\`\n• *TXID:* \`${txId}\`\n\n💳 *New Balance:* ${formatBalance(after)} KAS`;
+      }
 
+      // The recipient's wallet now holds the funds on chain. Credit their ledger once for this payout.
+      const { ledger } = await import('./ledger.mongo');
+      await ledger.credit(String(recipientUser._id), amountSompi, `recv:${outcome.op.key}`);
+      const recipientAfter = (await UserModel.findById(recipientUser._id)) || recipientUser;
 
-      user.balance -= amount;
-      await user.save();
-     
-      recipientUser.balance += amount;
-      await recipientUser.save();
-
-
-      const recipientNotificationText = `🎉 *You received KAS!*\n\n• *Amount:* ${amount} KAS\n• *From:* ${senderPhone}\n• *New Balance:* ${recipientUser.balance.toFixed(4)} KAS\n\nType *balance* to view your total wallet funds or *help* to spend it!`;
-
+      const recipientNotificationText = `🎉 *You received KAS!*\n\n• *Amount:* ${formatKas(amountSompi)} KAS\n• *From:* ${senderPhone}\n• *New Balance:* ${formatBalance(recipientAfter)} KAS\n\nType *balance* to view your total wallet funds or *help* to spend it!`;
 
       try {
         await sendWhatsAppNotification(normalizedTargetPhone, recipientNotificationText);
@@ -396,8 +381,7 @@ export const ChatbotService = {
         console.error('[RECIPIENT_NOTIFICATION_ERROR]', err);
       }
 
-
-      return `✅ *Transfer Successful!*\n\nSent *${amount} KAS* to *${normalizedTargetPhone}*.\n• *TXID:* \`${txResult.txId}\`\nYour new balance is *${user.balance.toFixed(4)} KAS*.`;
+      return `✅ *Transfer Successful!*\n\nSent *${formatKas(amountSompi)} KAS* to *${normalizedTargetPhone}*.\n• *TXID:* \`${txId}\`\nYour new balance is *${formatBalance(after)} KAS*.`;
     }
 
 
@@ -406,32 +390,17 @@ export const ChatbotService = {
       if (parts.length < 2) return 'Usage: /voucher [amount]\nExample: /voucher 50';
 
 
-      const amount = parseFloat(parts[1]);
-      if (isNaN(amount) || amount <= 0) return 'Please enter a valid amount.';
+      let voucherSompi: bigint;
+      try { voucherSompi = kasToSompi(parts[1]); } catch { return 'Please enter a valid amount.'; }
       if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
-      if (user.balance < amount) return `❌ Insufficient balance. You have ${user.balance.toFixed(4)} KAS.`;
+      if (userBalanceSompi(user) < voucherSompi) return `❌ Insufficient balance. You have ${formatBalance(user)} KAS.`;
 
+      const created = await createVoucher(user, formatKas(voucherSompi, 8));
+      if (created.status === 'INSUFFICIENT') return `❌ Insufficient balance.`;
+      if (created.status === 'FAILED') return `❌ Voucher creation failed. Your KAS was not deducted. ${created.message || ''}`.trim();
+      if (created.status === 'PENDING') return '⏳ *Voucher in progress.* We are confirming the funding on the network. Your code will be sent as soon as it is ready, and you will not be charged twice.';
 
-      const escrow = await VaultService.createVoucherEscrow(user.mnemonic, amount);
-      if (!escrow.success || !escrow.voucherCode || !escrow.vaultAddress || !escrow.txId) {
-        return `❌ Escrow creation failed: ${escrow.error}`;
-      }
-     
-      await RechargeCardModel.create({
-        code: escrow.voucherCode,
-        amount: amount,
-        vaultAddress: escrow.vaultAddress,
-        fundingTxId: escrow.txId,
-        purchasedByPhone: senderPhone,
-        used: false
-      } as any);
-
-
-      user.balance -= amount;
-      await user.save();
-
-
-      return `✅ *Trustless Recharge Card Created*\n\nCode: *${escrow.voucherCode}*\nAmount: ${amount} KAS\nVault: \`${escrow.vaultAddress}\`\n\nFunds are strictly locked on the blockchain until redeemed.`;
+      return `✅ *Recharge Card Created*\n\nCode: *${created.code}*\nAmount: ${formatKas(voucherSompi)} KAS\n\nThe funds are held by KasApp until the card is redeemed.`;
     }
 
 
@@ -441,69 +410,26 @@ export const ChatbotService = {
      
       let currentUser = user;
       if (!currentUser) {
-        // 🛡️ ENCRYPTED SEED FIX
-        const { address, encryptedSeed } = await KaspaService.createEncryptedWallet();
-        currentUser = await UserModel.create({
-          phone: senderPhone,
-          walletAddress: address,
-          mnemonic: encryptedSeed,
-          balance: 0,
-        });
+        currentUser = (await provisionUser(senderPhone)) || (await UserModel.findOne({ phone: senderPhone }));
+        if (!currentUser) return '❌ Could not prepare your wallet. Please try again.';
       }
-
 
       const code = normalizeVoucherCode(parts[1]);
-      
-      // 🛡️ ATOMIC VOUCHER CLAIM FIX
-      const card = await RechargeCardModel.findOneAndUpdate(
-        { code, used: false },
-        { $set: { used: true, usedBy: senderPhone, usedAt: new Date() } },
-        { new: false } // Returns the document as it was BEFORE the update
+      const redeemed = await redeemOnChain(code, currentUser);
+
+      if (redeemed.status === 'INVALID') return "❌ *Invalid or Already Used Voucher Code.* Please check the code and try again.";
+      if (redeemed.status === 'FAILED') return `❌ Redemption failed: ${redeemed.message || 'the network did not accept it'}. Your voucher is still valid, please try again.`;
+      if (redeemed.status === 'PENDING') return '⏳ *Redemption in progress.* We are confirming it on the network. The funds will arrive in your wallet shortly and the voucher cannot be used twice.';
+
+      const refreshed = (await UserModel.findById(currentUser._id)) || currentUser;
+      const finalTxID = redeemed.op!.txids[redeemed.op!.txids.length - 1];
+      return (
+        `🎉 *Voucher Successfully Redeemed!*\n\n` +
+        `• *Amount Credited:* +${formatKas(kasToSompi(redeemed.amount!))} KAS\n` +
+        `• *TXID:* \`${finalTxID}\`\n\n` +
+        `💳 *Your New Balance:* *${formatBalance(refreshed)} KAS*\n\n` +
+        `Type *help bills* to spend your KAS on airtime or utilities!`
       );
-
-
-      if (!card) return "❌ *Invalid or Already Used Voucher Code.* Please check the code and try again.";
-
-
-      try {
-        const operatorMnemonic = getOperatorSeed();
-
-
-        const txID = await KaspaService.sendExternalTransaction(
-          operatorMnemonic,
-          currentUser.walletAddress!,
-          card.amount
-        );
-
-
-        if (!txID.success) {
-          // 🛡️ ROLLBACK IF TX FAILS
-          await RechargeCardModel.updateOne({ _id: card._id }, { $set: { used: false, usedBy: null, usedAt: null } });
-          return `❌ Blockchain rejected redemption: ${txID.error}`;
-        }
-
-
-        const finalTxID = typeof txID === 'object' ? txID.txId : txID;
-        await RechargeCardModel.updateOne({ _id: card._id }, { $set: { redeemTxId: finalTxID } });
-
-
-        currentUser.balance += card.amount;
-        await currentUser.save();
-
-
-        return (
-          `🎉 *Voucher Successfully Redeemed!*\n\n` +
-          `• *Amount Credited:* +${card.amount.toFixed(4)} KAS\n` +
-          `• *TXID:* \`${finalTxID}\`\n\n` +
-          `💳 *Your New Balance:* *${currentUser.balance.toFixed(4)} KAS*\n\n` +
-          `Type *help bills* to spend your KAS on airtime or utilities!`
-        );
-      } catch (error: any) {
-        // 🛡️ ROLLBACK IF TX CRASHES
-        await RechargeCardModel.updateOne({ _id: card._id }, { $set: { used: false, usedBy: null, usedAt: null } });
-        console.error("[REDEEM_ERROR] Blockchain interaction failed:", error);
-        return `⚠️ *Redemption failed on-chain:* ${error.message || 'Unknown error occurred while broadcasting.'}`;
-      }
     }
 
 
@@ -516,8 +442,8 @@ export const ChatbotService = {
       const amountNaira = parseFloat(parts[3]);
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
       const requiredKAS = await nairaToKAS(amountNaira);
-      if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-      return await settleBillWithKas(user, requiredKAS, () => BillPayService.buyAirtime(targetPhone, amountNaira, network));
+      if (userBalanceSompi(user) < kasToSompi(requiredKAS)) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
+      return await settleBillWithKas(user, requiredKAS, { provider: 'FLUTTERWAVE', kind: 'airtime', target: targetPhone, network: network, amountNaira }, '📱 *Airtime purchase successful!*');
     }
 
 
@@ -530,8 +456,8 @@ export const ChatbotService = {
       const amountNaira = parseFloat(parts[3]);
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
       const requiredKAS = await nairaToKAS(amountNaira);
-      if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-      return await settleBillWithKas(user, requiredKAS, () => BillPayService.buyData(targetPhone, amountNaira, network));
+      if (userBalanceSompi(user) < kasToSompi(requiredKAS)) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
+      return await settleBillWithKas(user, requiredKAS, { provider: 'FLUTTERWAVE', kind: 'data', target: targetPhone, network: network, amountNaira }, '📶 *Data purchase successful!*');
     }
 
 
@@ -556,8 +482,8 @@ export const ChatbotService = {
       const amountNaira = parseFloat(parts[3]);
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
       const requiredKAS = await nairaToKAS(amountNaira);
-      if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-      return await settleBillWithKas(user, requiredKAS, () => BillPayService.payElectricity(meterNumber, amountNaira, provider));
+      if (userBalanceSompi(user) < kasToSompi(requiredKAS)) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
+      return await settleBillWithKas(user, requiredKAS, { provider: 'FLUTTERWAVE', kind: 'electricity', target: meterNumber, network: provider, amountNaira }, '💡 *Electricity payment successful!*');
     }
 
 
@@ -570,8 +496,8 @@ export const ChatbotService = {
       const amountNaira = parseFloat(parts[3]);
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
       const requiredKAS = await nairaToKAS(amountNaira);
-      if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-      return await settleBillWithKas(user, requiredKAS, () => BillPayService.payWater(accountNumber, amountNaira, provider));
+      if (userBalanceSompi(user) < kasToSompi(requiredKAS)) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
+      return await settleBillWithKas(user, requiredKAS, { provider: 'FLUTTERWAVE', kind: 'water', target: accountNumber, network: provider, amountNaira }, '🚰 *Water payment successful!*');
     }
 
 
@@ -584,8 +510,8 @@ export const ChatbotService = {
       const amountNaira = parseFloat(parts[3]);
       if (isNaN(amountNaira) || amountNaira <= 0) return "That amount doesn't look right — try a positive number.";
       const requiredKAS = await nairaToKAS(amountNaira);
-      if (user.balance < requiredKAS) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
-      return await settleBillWithKas(user, requiredKAS, () => BillPayService.payCable(smartcardNumber, amountNaira, provider));
+      if (userBalanceSompi(user) < kasToSompi(requiredKAS)) return "You're a little short on balance for that — you'd need " + requiredKAS.toFixed(4) + ' KAS.';
+      return await settleBillWithKas(user, requiredKAS, { provider: 'FLUTTERWAVE', kind: 'cable', target: smartcardNumber, network: provider, amountNaira }, '📺 *Cable payment successful!*');
     }
 
 
