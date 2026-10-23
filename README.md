@@ -55,6 +55,12 @@ Health endpoints:
 *   `GET /ready` returns 200 only when MongoDB and Redis are reachable, otherwise 503.
 
 
+More documentation:
+
+*   `docs/DEPLOYMENT.md`: configuration, Render and Docker deployment, testnet checklist, mainnet go live and rollback.
+*   `docs/MERCHANT_API.md`: the merchant voucher redemption endpoint.
+
+
 ## Testing safely before mainnet
 
 1.  Set `KASPA_NETWORK=testnet-10` and use a testnet operator address (it starts with `kaspatest:`).
