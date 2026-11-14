@@ -77,11 +77,20 @@ const start = async () => {
     }, 300_000).unref();
   }
 
-  app.listen(PORT, () => {
-    console.log(`[Kasapp] Server running on port ${PORT}`);
-    console.log(`[Kasapp] Health check at http://localhost:${PORT}/health, readiness at /ready`);
-  });
+  
+
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    app.listen(PORT, () => {
+      console.log(`[Kasapp] Server running on port ${PORT}`);
+      console.log(`[Kasapp] Health check at http://localhost:${PORT}/health, readiness at /ready`);
+    });
+  }
 };
 
 
+// Execute startup checks and DB connection
 start();
+
+
+// Required by Vercel to route traffic to Express
+export default app;
