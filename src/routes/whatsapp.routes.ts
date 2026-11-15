@@ -51,12 +51,15 @@ const verifyMetaSignature = (req: Request, res: Response, buf: Buffer, encoding:
 // 2. META VERIFICATION ENDPOINT (GET)
 // =========================================================================
 router.get('/webhook', (req: Request, res: Response) => {
+  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
+  console.log(`[DEBUG] Env Token: '${verifyToken}'`);
+  console.log(`[DEBUG] URL Token: '${token}'`);
 
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+  if (mode === 'subscribe' && token === verifyToken) {
     res.status(200).send(challenge);
   } else {
     res.sendStatus(403);
