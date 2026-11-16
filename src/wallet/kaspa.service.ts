@@ -29,11 +29,11 @@ const DEFAULT_PRIORITY_FEE = BigInt(process.env.KASPA_PRIORITY_FEE_SOMPI || "100
 
 /**
  * Opens an RPC connection using strict positional arguments for compatibility
- * with older kaspa-wasm SDK versions.
+ * with older kaspa-wasm SDK versions. Uses secure WSS to prevent Railway disconnects.
  */
 async function connectRpc(options: { requireSynced?: boolean } = {}): Promise<any> {
-  // Fetch the URL from Railway, or fallback to a known public Rusty Kaspa node
-  const url = process.env.KASPA_RPC_URL || "ws://seeder2.kaspad.net:17110";
+  // Force the secure WebSocket (wss://) to the official Kaspa API
+  const url = process.env.KASPA_RPC_URL || "wss://api.kaspa.org";
 
 
   // Strict positional arguments: (url, encoding, network_type)
