@@ -41,7 +41,7 @@
     "flutterwave-node-v3": "^1.4.1",
     "ioredis": "^6.0.0",
     "isomorphic-ws": "^5.0.0",
-    "kaspa-wasm": "file:vendor/kaspa-wasm-2.0.1.tgz",
+    "kaspa-wasm": "^0.13.0",
     "libphonenumber-js": "^1.13.10",
     "mongoose": "^9.7.4",
     "node-cron": "^4.6.0",
