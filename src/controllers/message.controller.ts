@@ -61,22 +61,24 @@ export const handleWebhook = async (req: Request, res: Response): Promise<void> 
 };
 
 
-export const verifyWebhook = (req: Request, res: Response): void => {
-  const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'kasapp2-verify-token';
-
-
+export const verifyWebhook = (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
 
-  console.log('[Webhook Verification Attempt]', { mode, token, expected: VERIFY_TOKEN });
-
-
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-    console.log('[Webhook Verified Successfully!]');
-    res.status(200).send(challenge);
-  } else {
-    res.sendStatus(403);
+  // Check if a request is for verification
+  if (mode && token) {
+    if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+      console.log('[KasApp] Meta Webhook verified successfully!');
+      // CRITICAL: Send exactly the challenge string back, nothing else.
+      return res.status(200).send(challenge);
+    } else {
+      // Token didn't match
+      console.error('[KasApp] Webhook verification failed. Token mismatch.');
+      return res.sendStatus(403);
+    }
   }
+  
+  return res.sendStatus(400);
 };

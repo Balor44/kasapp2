@@ -34,7 +34,7 @@ const DEFAULT_PRIORITY_FEE = BigInt(process.env.KASPA_PRIORITY_FEE_SOMPI || "100
  * is read and no transaction is built against the wrong network.
  */
 async function connectRpc(options: { requireSynced?: boolean } = {}): Promise<any> {
-  const url = process.env.KASPA_RPC_URL || "ws://127.0.0.1:16110";
+  const url = process.env.KASPA_RPC_URL || "ws://wrpc.kaspa.org:16110";
   
   // kaspa-wasm v2 signature: constructor(url: string, encoding: number, network_type?: string)
   // encoding 1 = Borsh

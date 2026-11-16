@@ -74,7 +74,7 @@ export const ChatbotService = {
     // 🛡️ LEDGER SYNC FIX: Reconcile MongoDB with the Kaspa Mainnet
     // We only sync on financial commands to save RPC calls
     if (user && user.walletAddress) {
-      const isFinancialCommand = ['/balance', 'balance', 'bal', '/send', '/voucher', '/airtime', '/data', '/electricity', '/cable', '/water', '/auto'].some(cmd => msg.startsWith(cmd));
+      const isFinancialCommand = ['/send', '/voucher', '/airtime', '/data', '/electricity', '/cable', '/water', '/auto'].some(cmd => msg.startsWith(cmd));
      
       if (isFinancialCommand) {
         try {
