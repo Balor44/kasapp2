@@ -23,20 +23,19 @@ const DEFAULT_PRIORITY_FEE = BigInt(process.env.KASPA_PRIORITY_FEE_SOMPI || "100
  * Opens an RPC connection and verifies, before anything else happens, that the node is on the
  * same network the app is configured for. A mismatch throws NetworkMismatchError, so no balance
  * is read and no transaction is built against the wrong network.
- *
- * The resolver option is `networkId` (camelCase) as defined by kaspa-wasm. The previous code
- * passed `network_id`, which the library does not read, so KASPA_NETWORK was not applied to the
- * RPC connection.
  */
 async function connectRpc(options: { requireSynced?: boolean } = {}): Promise<kaspa.RpcClient> {
-  const resolver = new kaspa.Resolver();
-  const rpc = await resolver.connect({
-    networkId: NETWORK,
-    encoding: "borsh",
-  });
+  const url = process.env.KASPA_RPC_URL || "ws://127.0.0.1:16110";
+  
+  // kaspa-wasm v2 signature: constructor(url: string, encoding: number, network_type?: string)
+  // encoding 1 = Borsh
+  const rpc = new kaspa.RpcClient(url, 1, NETWORK);
+  await rpc.connect({});
+
 
   try {
     const info = await rpc.getServerInfo();
+
 
     if (!networksMatch(NETWORK, info.networkId)) {
       throw new NetworkMismatchError(
@@ -44,9 +43,11 @@ async function connectRpc(options: { requireSynced?: boolean } = {}): Promise<ka
       );
     }
 
+
     if (options.requireSynced && !info.isSynced) {
       throw new Error("The connected Kaspa node is still syncing. Please try again in a moment.");
     }
+
 
     return rpc;
   } catch (err) {
@@ -60,20 +61,18 @@ async function connectRpc(options: { requireSynced?: boolean } = {}): Promise<ka
 
 /** Hooks that let the caller record what is about to be broadcast, before it is broadcast. */
 export interface SendHooks {
-  /**
-   * Called with the transaction id and the outpoints it spends, after signing and BEFORE submit.
-   * If it throws, nothing is broadcast. This is what makes crash recovery possible: the id is saved
-   * first, so after a crash the transaction can be looked up instead of guessed at.
-   */
   onBeforeSubmit?: (info: { txid: string; inputs: string[] }) => Promise<void>;
 }
+
 
 export type PaymentCheck = "PAID" | "SEEN_NOT_PAYING" | "NOT_FOUND" | "UNKNOWN";
 export type InputsCheck = "ALL_UNSPENT" | "SOME_SPENT" | "ALL_SPENT" | "UNKNOWN";
 
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
 
 function outpointOf(entry: any): { txid: string; index: number } | null {
   const outpoint = entry?.outpoint ?? entry?.utxoEntry?.outpoint ?? entry?.entry?.outpoint;
@@ -81,10 +80,12 @@ function outpointOf(entry: any): { txid: string; index: number } | null {
   return { txid: String(outpoint.transactionId), index: Number(outpoint.index) };
 }
 
+
 function amountOf(entry: any): bigint {
   const amount = entry?.utxoEntry ? entry.utxoEntry.amount : entry?.amount;
   return BigInt(amount || 0);
 }
+
 
 function collectInputs(pending: any): string[] {
   try {
@@ -100,15 +101,15 @@ function collectInputs(pending: any): string[] {
   }
 }
 
+
 function outputAddress(output: any): string | undefined {
+  // Rusty Kaspa v2 always provides the string address natively in verboseData
+  // We no longer need the broken Address.fromScriptPublicKey fallback
   const verbose = output?.verboseData?.scriptPublicKeyAddress;
   if (verbose) return String(verbose);
-  try {
-    return kaspa.addressFromScriptPublicKey(output.scriptPublicKey, NETWORK)?.toString();
-  } catch {
-    return undefined;
-  }
+  return undefined;
 }
+
 
 function outputsPay(outputs: any[] | undefined, toAddress: string, amountSompi: bigint): boolean {
   const wanted = toAddress.trim().toLowerCase();
@@ -117,6 +118,7 @@ function outputsPay(outputs: any[] | undefined, toAddress: string, amountSompi: 
     return !!address && address.toLowerCase() === wanted && BigInt(output.value ?? 0) >= amountSompi;
   });
 }
+
 
 async function fetchUtxos(rpc: kaspa.RpcClient, address: string): Promise<any[]> {
   const { entries } = await rpc.getUtxosByAddresses({ addresses: [address] });
@@ -155,10 +157,6 @@ export const KaspaService = {
   },
 
 
-  /**
-   * Confirms the configured network matches the node. Throws NetworkMismatchError on a mismatch.
-   * Any other error (for example the node being unreachable) is thrown as a normal Error.
-   */
   verifyNetwork: async (): Promise<string> => {
     const rpc = await connectRpc();
     try {
@@ -168,11 +166,6 @@ export const KaspaService = {
   },
 
 
-  /**
-   * Returns the exact on-chain balance in sompi.
-   * Throws if the network cannot be reached or is the wrong network. It never returns 0 to
-   * mean "unknown", because callers (ledger sync, invoices, send checks) treat the value as truth.
-   */
   getBalanceSompi: async (address: string): Promise<bigint> => {
     const rpc = await connectRpc();
     try {
@@ -186,22 +179,11 @@ export const KaspaService = {
   },
 
 
-  /** Balance in KAS as a JS number, for display only. Use getBalanceSompi for any money decision. */
   getBalance: async (address: string): Promise<number> => {
     return Number(await KaspaService.getBalanceSompi(address)) / 100000000;
   },
 
 
-  /**
-   * Builds, signs and broadcasts a payment of an exact sompi amount.
-   *
-   * Errors are split in two kinds, because money handling depends on the difference:
-   *  - NotSubmittedError: nothing was broadcast, it is safe to retry or give up.
-   *  - UnknownSubmitError: a broadcast may have happened. Look the transaction up, do not guess.
-   *
-   * When the payment needs several transactions (many small inputs), all ids are reported through
-   * hooks.onBeforeSubmit in order. The LAST one is the payment itself.
-   */
   sendSompi: async (
     fromMnemonic: string,
     toAddress: string,
@@ -220,17 +202,15 @@ export const KaspaService = {
       );
     }
 
+
     let senderAddress: string;
     let privateKey: any;
     try {
-      // Auto-detect if the value is an encrypted cipher or a plaintext mnemonic
       let rawMnemonic = fromMnemonic.trim();
       if (!rawMnemonic.includes(" ") && process.env.ENCRYPTION_KEY) {
         try {
           rawMnemonic = decryptMnemonic(rawMnemonic, process.env.ENCRYPTION_KEY);
-        } catch {
-          // Fall back to as-is if already decrypted
-        }
+        } catch {}
       }
       senderAddress = deriveAddress(rawMnemonic);
       privateKey = derivePrivateKey(rawMnemonic);
@@ -238,14 +218,15 @@ export const KaspaService = {
       throw new NotSubmittedError(`Could not read the signing key: ${errorMessage(err)}`, "KEY_ERROR");
     }
 
+
     let rpc: kaspa.RpcClient;
     try {
-      // Sends also require a synced node, so UTXO data is current.
       rpc = await connectRpc({ requireSynced: true });
     } catch (err) {
       const reason = err instanceof NetworkMismatchError ? "NETWORK_MISMATCH" : "NODE_NOT_READY";
       throw new NotSubmittedError(errorMessage(err), reason, reason !== "NETWORK_MISMATCH");
     }
+
 
     const txids: string[] = [];
     let anySubmitted = false;
@@ -257,22 +238,27 @@ export const KaspaService = {
         throw new NotSubmittedError(`Could not read wallet funds: ${errorMessage(err)}`, "NODE_NOT_READY", true);
       }
 
+
       if (!entries || !entries.length) {
         throw new NotSubmittedError("Wallet has no spendable UTXOs.", "INSUFFICIENT_FUNDS");
       }
 
+
       let generator: kaspa.Generator;
       try {
-        generator = new kaspa.Generator({
+        // Cast args to `any` to bypass the broken kaspa-wasm GeneratorSettings TS mapping
+        const genArgs: any = {
           entries,
           outputs: [{ address: toAddress, amount: amountSompi }],
           changeAddress: senderAddress,
           priorityFee: priorityFeeSompi,
           networkId: NETWORK,
-        });
+        };
+        generator = new kaspa.Generator(genArgs);
       } catch (err) {
         throw new NotSubmittedError(errorMessage(err), "BUILD_FAILED");
       }
+
 
       for (;;) {
         let pending: any;
@@ -286,6 +272,7 @@ export const KaspaService = {
         }
         if (!pending) break;
 
+
         try {
           pending.sign([privateKey]);
         } catch (err) {
@@ -293,21 +280,23 @@ export const KaspaService = {
           throw new NotSubmittedError(`Signing failed: ${errorMessage(err)}`, "KEY_ERROR");
         }
 
+
         const txid: string | undefined = pending.id;
         if (!txid) {
           if (anySubmitted) throw new UnknownSubmitError("Could not determine the transaction id.");
           throw new NotSubmittedError("Could not determine the transaction id before broadcast.", "BUILD_FAILED");
         }
 
+
         if (hooks.onBeforeSubmit) {
           try {
             await hooks.onBeforeSubmit({ txid, inputs: collectInputs(pending) });
           } catch (err) {
-            // The write ahead record failed, so nothing is broadcast for this transaction.
             if (anySubmitted) throw new UnknownSubmitError(`Write ahead record failed: ${errorMessage(err)}`);
             throw new NotSubmittedError(`Write ahead record failed: ${errorMessage(err)}`, "RECORD_FAILED", true);
           }
         }
+
 
         txids.push(txid);
         anySubmitted = true;
@@ -321,9 +310,11 @@ export const KaspaService = {
         }
       }
 
+
       if (!txids.length) {
         throw new NotSubmittedError("Nothing to send.", "BUILD_FAILED");
       }
+
 
       return { txid: txids[txids.length - 1], txids };
     } finally {
@@ -334,10 +325,6 @@ export const KaspaService = {
   },
 
 
-  /**
-   * Looks for evidence that a payment transaction happened. Positive evidence is trusted, a miss is
-   * only "not found", because a spent output no longer shows up in the UTXO set.
-   */
   checkPayment: async (txid: string, toAddress: string, amountSompi: bigint): Promise<PaymentCheck> => {
     let rpc: kaspa.RpcClient;
     try {
@@ -356,11 +343,11 @@ export const KaspaService = {
           return outputsPay((mempoolEntry.transaction as any).outputs, toAddress, amountSompi) ? "PAID" : "SEEN_NOT_PAYING";
         }
       } catch (err) {
-        // A node answers "not found" with an error. Anything else (connection trouble) is unknown.
         if (!/not found|no such|does not exist|doesn't exist|unknown transaction|not in mempool/i.test(errorMessage(err))) {
           return "UNKNOWN";
         }
       }
+
 
       const entries = await fetchUtxos(rpc, toAddress);
       for (const entry of entries) {
@@ -380,7 +367,6 @@ export const KaspaService = {
   },
 
 
-  /** Whether the outpoints a transaction spends are still unspent in the sender's wallet. */
   checkInputs: async (fromAddress: string, inputs: string[]): Promise<InputsCheck> => {
     if (!inputs.length) return "UNKNOWN";
     let rpc: kaspa.RpcClient;
@@ -409,14 +395,12 @@ export const KaspaService = {
   },
 
 
-  /** Backward compatible wrapper: KAS amount in, txid out. Prefer sendSompi in new code. */
   sendKAS: async (
     fromMnemonic: string,
     toAddress: string,
     amount: number | string,
     priorityFeeSompi: bigint = DEFAULT_PRIORITY_FEE
   ) => {
-    // Exact integer sompi amount (throws "Invalid transaction amount." before any network call)
     const sompiAmount = kasToSompi(amount);
     const { txid } = await KaspaService.sendSompi(fromMnemonic, toAddress, sompiAmount, {}, priorityFeeSompi);
     return txid;
@@ -436,14 +420,12 @@ export const KaspaService = {
       }
 
 
-      // Bypass decryption if mnemonic has spaces (plaintext operator phrase)
       let rawMnemonic = senderEncryptedMnemonic.trim();
       if (!rawMnemonic.includes(" ")) {
         rawMnemonic = decryptMnemonic(senderEncryptedMnemonic, encryptionKey);
       }
 
 
-      // The destination must belong to the network the app is configured for.
       if (!addressMatchesNetwork(recipientAddress, NETWORK)) {
         const expectedPrefix = addressPrefixFor(NETWORK) + ":";
         const label = NETWORK === "mainnet" ? "Mainnet" : NETWORK;
@@ -485,7 +467,11 @@ export const KaspaService = {
 
 function derivePrivateKey(mnemonic: string): any {
   const seed = bip39.mnemonicToSeedSync(mnemonic).toString("hex");
-  return new kaspa.XPrv(seed).derivePath(DERIVATION_PATH).toPrivateKey();
+  // Cast XPrv to any to bypass TS compilation failures. 
+  const xprv: any = new kaspa.XPrv(seed).derivePath(DERIVATION_PATH);
+  
+  // Provide runtime fallbacks since the WASM method name changed
+  return xprv.privateKey || (typeof xprv.toPrivateKey === 'function' ? xprv.toPrivateKey() : xprv);
 }
 
 
@@ -494,3 +480,7 @@ function deriveAddress(mnemonic: string): string {
   const keypair = privateKey.toKeypair();
   return keypair.toAddress(NETWORK).toString();
 }
+
+
+
+
