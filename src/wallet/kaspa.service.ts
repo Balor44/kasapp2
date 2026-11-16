@@ -18,7 +18,6 @@ import { NetworkMismatchError, addressMatchesNetwork, addressPrefixFor, networks
 import { NotSubmittedError, UnknownSubmitError } from "../utils/chainErrors";
 
 
-
 const NETWORK = process.env.KASPA_NETWORK || "mainnet";
 const DERIVATION_PATH = "m/44'/111111'/0'/0/0";
 
@@ -29,16 +28,19 @@ const DEFAULT_PRIORITY_FEE = BigInt(process.env.KASPA_PRIORITY_FEE_SOMPI || "100
 
 
 /**
- * Opens an RPC connection and verifies, before anything else happens, that the node is on the
- * same network the app is configured for. A mismatch throws NetworkMismatchError, so no balance
- * is read and no transaction is built against the wrong network.
+ * Opens an RPC connection using strict positional arguments for compatibility
+ * with older kaspa-wasm SDK versions.
  */
 async function connectRpc(options: { requireSynced?: boolean } = {}): Promise<any> {
-  const url = process.env.KASPA_RPC_URL || "ws://wrpc.kaspa.org:16110";
-  
-  // kaspa-wasm v2 signature: constructor(url: string, encoding: number, network_type?: string)
-  // encoding 1 = Borsh
+  // Fetch the URL from Railway, or fallback to a known public Rusty Kaspa node
+  const url = process.env.KASPA_RPC_URL || "ws://seeder2.kaspad.net:17110";
+
+
+  // Strict positional arguments: (url, encoding, network_type)
+  // Encoding 1 = Borsh
   const rpc = new kaspa.RpcClient(url, 1, NETWORK);
+
+
   await rpc.connect({});
 
 
