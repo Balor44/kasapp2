@@ -2,8 +2,10 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { freshRequire, installMocks, pkg } from './helpers/loader';
 
+
 const PHRASE = 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu';
 const ENV_KEYS = ['KASPA_NETWORK', 'ENCRYPTION_KEY'];
+
 
 interface Scenario {
   nodeNetwork?: string;
@@ -13,39 +15,51 @@ interface Scenario {
   entries?: any[];
 }
 
+
 function makeKaspa(scenario: Scenario) {
-  const calls = { connect: [] as any[], generator: [] as any[], utxoQueries: 0, disconnects: 0 };
+  const calls = { connect: [] as any[], rpcConstructor: [] as any[], generator: [] as any[], utxoQueries: 0, disconnects: 0 };
 
-  const rpc = {
-    getServerInfo: async () => ({ networkId: scenario.nodeNetwork ?? 'mainnet', isSynced: scenario.isSynced ?? true }),
-    getUtxosByAddresses: async () => {
-      calls.utxoQueries++;
-      if (scenario.utxoFails) throw new Error('rpc timeout');
-      return { entries: scenario.entries ?? [{ amount: 250_000_000n }] };
-    },
-    disconnect: async () => {
-      calls.disconnects++;
-    },
-  };
 
-  class Resolver {
+  class RpcClient {
+    constructor(url: string, encoding: number, networkId: string) {
+      calls.rpcConstructor.push({ url, encoding, networkId });
+    }
     async connect(options: any) {
       calls.connect.push(options);
       if (scenario.connectFails) throw new Error('no public node available');
-      return rpc;
+    }
+    async getServerInfo() {
+      return { networkId: scenario.nodeNetwork ?? 'mainnet', isSynced: scenario.isSynced ?? true };
+    }
+    async getUtxosByAddresses() {
+      calls.utxoQueries++;
+      if (scenario.utxoFails) throw new Error('rpc timeout');
+      return { entries: scenario.entries ?? [{ amount: 250_000_000n }] };
+    }
+    async disconnect() {
+      calls.disconnects++;
+    }
+    async getMempoolEntry() {
+      return { mempoolEntry: null };
     }
   }
+
+
   class XPrv {
     constructor(_seed: string) {}
     derivePath() {
       return this;
     }
-    toPrivateKey() {
+    get privateKey() {
       return {
         toKeypair: () => ({
           toAddress: (network: string) => ({ toString: () => (network === 'mainnet' ? 'kaspa:qqsender' : 'kaspatest:qqsender') }),
         }),
       };
+    }
+    // Fallback for mock compatibility
+    toPrivateKey() {
+      return this.privateKey;
     }
   }
   class Generator {
@@ -60,12 +74,15 @@ function makeKaspa(scenario: Scenario) {
     }
   }
 
-  return { calls, module: { Resolver, XPrv, Generator } };
+
+  return { calls, module: { RpcClient, XPrv, Generator } };
 }
+
 
 describe('KaspaService network safety', () => {
   let restore: () => void;
   const saved: Record<string, string | undefined> = {};
+
 
   function load(network: string, scenario: Scenario) {
     process.env.KASPA_NETWORK = network;
@@ -79,10 +96,12 @@ describe('KaspaService network safety', () => {
     return { service, calls: kaspa.calls };
   }
 
+
   beforeEach(() => {
     for (const key of ENV_KEYS) saved[key] = process.env[key];
     process.env.ENCRYPTION_KEY = 'unit-test-encryption-key-0123456789';
   });
+
 
   afterEach(() => {
     if (restore) restore();
@@ -92,14 +111,17 @@ describe('KaspaService network safety', () => {
     }
   });
 
-  it('passes the network to the resolver as networkId (not network_id)', async () => {
+
+  it('passes the network to the RpcClient constructor', async () => {
     const { service, calls } = load('mainnet', {});
     const balance = await service.getBalance('kaspa:qqabc');
     assert.equal(balance, 2.5);
-    assert.deepEqual(calls.connect[0], { networkId: 'mainnet', encoding: 'borsh' });
-    assert.equal('network_id' in calls.connect[0], false);
+    // V2 check: it should pass 'mainnet' and encoding '1' (Borsh) to the constructor
+    assert.equal(calls.rpcConstructor[0].networkId, 'mainnet');
+    assert.equal(calls.rpcConstructor[0].encoding, 1);
     assert.equal(calls.disconnects, 1);
   });
+
 
   it('refuses to read a balance when the node is on a different network', async () => {
     const { service, calls } = load('mainnet', { nodeNetwork: 'testnet-10' });
@@ -108,43 +130,51 @@ describe('KaspaService network safety', () => {
     assert.equal(calls.disconnects, 1);
   });
 
+
   it('throws instead of returning 0 when the RPC call fails', async () => {
     const { service } = load('mainnet', { utxoFails: true });
     await assert.rejects(service.getBalance('kaspa:qqabc'), /rpc timeout/);
   });
+
 
   it('throws instead of returning 0 when no node can be reached', async () => {
     const { service } = load('mainnet', { connectFails: true });
     await assert.rejects(service.getBalance('kaspa:qqabc'), /no public node available/);
   });
 
+
   it('still returns a true zero for an empty wallet', async () => {
     const { service } = load('mainnet', { entries: [] });
     assert.equal(await service.getBalance('kaspa:qqabc'), 0);
   });
+
 
   it('verifyNetwork reports a mismatch as NetworkMismatchError and succeeds when networks match', async () => {
     const bad = load('mainnet', { nodeNetwork: 'testnet-10' });
     await assert.rejects(bad.service.verifyNetwork(), (error: any) => error.name === 'NetworkMismatchError');
     restore();
 
+
     const good = load('testnet-10', { nodeNetwork: 'testnet-10' });
     assert.equal(await good.service.verifyNetwork(), 'testnet-10');
   });
+
 
   it('rejects an invalid amount before touching the network', async () => {
     const { service, calls } = load('mainnet', {});
     for (const bad of [0, -5, NaN, 'abc']) {
       await assert.rejects(service.sendKAS(PHRASE, 'kaspa:qqdest', bad as any), /Invalid transaction amount\./);
     }
-    assert.equal(calls.connect.length, 0);
+    assert.equal(calls.rpcConstructor.length, 0);
   });
+
 
   it('refuses to send while the node is still syncing', async () => {
     const { service, calls } = load('mainnet', { isSynced: false });
     await assert.rejects(service.sendKAS(PHRASE, 'kaspa:qqdest', 1), /still syncing/);
     assert.equal(calls.generator.length, 0);
   });
+
 
   it('builds the transaction with the exact sompi amount on the configured network', async () => {
     const { service, calls } = load('mainnet', {});
@@ -157,13 +187,15 @@ describe('KaspaService network safety', () => {
     assert.equal(calls.disconnects, 1);
   });
 
+
   it('rejects a destination address from the wrong network without connecting', async () => {
     const mainnet = load('mainnet', {});
     const result = await mainnet.service.sendExternalTransaction(PHRASE, 'kaspatest:qqdest', 1);
     assert.equal(result.success, false);
     assert.equal(result.error, "Invalid address format. Mainnet addresses must start with 'kaspa:'.");
-    assert.equal(mainnet.calls.connect.length, 0);
+    assert.equal(mainnet.calls.rpcConstructor.length, 0);
     restore();
+
 
     const testnet = load('testnet-10', { nodeNetwork: 'testnet-10' });
     const wrong = await testnet.service.sendExternalTransaction(PHRASE, 'kaspa:qqdest', 1);
@@ -174,3 +206,5 @@ describe('KaspaService network safety', () => {
     assert.equal(right.txId, 'tx-abc123');
   });
 });
+
+
