@@ -11,7 +11,7 @@ import { kasToSompi, formatKas } from './utils/sompi';
 import { log } from './utils/logger';
 
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 
 // Validate security critical configuration on startup. Messages name the variable, never its value.
@@ -34,6 +34,7 @@ initRecurringPaymentsCron();
 const start = async () => {
   await connectDB();
 
+
   // Fail closed if the node is on a different network than KASPA_NETWORK.
   // If the node is simply unreachable right now, start anyway: the same check runs on every RPC
   // connection, so no balance is read and no transaction is built against the wrong network.
@@ -47,6 +48,7 @@ const start = async () => {
     }
     console.warn(`[Kasapp] Could not reach a Kaspa node to verify the network at startup (it will be checked on every operation): ${error?.message || error}`);
   }
+
 
   // Crash recovery: settle unfinished payments, bill purchases and vouchers, now and every 30 seconds.
   void engine.sweep().catch((e: any) => log.error('startup reconcile failed', { error: e?.message }));
@@ -63,6 +65,7 @@ const start = async () => {
   void recoverAll();
   setInterval(recoverAll, 60_000).unref();
 
+
   // Hot wallet monitor: alert the admin before payouts start failing for lack of funds.
   const operator = (process.env.OPERATOR_WALLET_ADDRESS || '').trim();
   const lowMark = process.env.OPERATOR_MIN_RESERVE_KAS ? kasToSompi(process.env.OPERATOR_MIN_RESERVE_KAS) : null;
@@ -77,14 +80,12 @@ const start = async () => {
     }, 300_000).unref();
   }
 
-  
 
-  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-    app.listen(PORT, () => {
-      console.log(`[Kasapp] Server running on port ${PORT}`);
-      console.log(`[Kasapp] Health check at http://localhost:${PORT}/health, readiness at /ready`);
-    });
-  }
+  // Railway requires the app to listen unconditionally on 0.0.0.0
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Kasapp] Server running on port ${PORT}`);
+    console.log(`[Kasapp] Health check at http://0.0.0.0:${PORT}/health, readiness at /ready`);
+  });
 };
 
 
@@ -92,5 +93,3 @@ const start = async () => {
 start();
 
 
-// Required by Vercel to route traffic to Express
-export default app;
