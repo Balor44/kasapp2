@@ -1,17 +1,14 @@
 import * as bip39 from "bip39";
 import WebSocket from "isomorphic-ws";
-import { createRequire } from "module";
 
 
 // 1. Shim the WebSocket globally FIRST.
 (globalThis as any).WebSocket = WebSocket;
 
 
-// 2. Bypass ESM hoisting and CJS wrapping using a dynamic require.
-// This guarantees kaspa-wasm initializes AFTER the WebSocket is shimmed.
-// @ts-ignore - Bypass TS compiler errors for dynamic import of CJS module in ESM context.
-const customRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
-const rawKaspa = customRequire("kaspa-wasm");
+// 2. Use standard CommonJS require to bypass hoisting.
+// This executes after the shim and completely avoids the import.meta CI crash.
+const rawKaspa = require("kaspa-wasm");
 const kaspa: typeof import("kaspa-wasm") = rawKaspa.default || rawKaspa;
 
 
@@ -19,6 +16,7 @@ import { encryptMnemonic, decryptMnemonic } from "../utils/crypto.utils";
 import { kasToSompi, MAX_SOMPI } from "../utils/sompi";
 import { NetworkMismatchError, addressMatchesNetwork, addressPrefixFor, networksMatch } from "../utils/network";
 import { NotSubmittedError, UnknownSubmitError } from "../utils/chainErrors";
+
 
 
 const NETWORK = process.env.KASPA_NETWORK || "mainnet";
