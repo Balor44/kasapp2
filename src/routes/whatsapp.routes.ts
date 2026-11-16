@@ -27,23 +27,37 @@ const APP_SECRET = process.env.WHATSAPP_APP_SECRET;
 
 
 // =========================================================================
-// 1. SIGNATURE VERIFICATION MIDDLEWARE
+// 1. SIGNATURE VERIFICATION MIDDLEWARE (With Enhanced Logging)
 // =========================================================================
 const verifyMetaSignature = (req: Request, res: Response, buf: Buffer, encoding: string) => {
+  console.log('\n[WEBHOOK] 📥 Incoming POST request from Meta...');
+  
   const signature = req.headers['x-hub-signature-256'] as string;
-  if (!signature) throw new Error('No signature provided');
-  if (!APP_SECRET) throw new Error('Server misconfiguration: Missing APP_SECRET');
+  if (!signature) {
+    console.error('[WEBHOOK_REJECTED] ❌ No x-hub-signature-256 header provided by Meta');
+    throw new Error('No signature provided');
+  }
+  
+  if (!APP_SECRET) {
+    console.error('[WEBHOOK_REJECTED] ❌ Server misconfiguration: Missing WHATSAPP_APP_SECRET in Railway variables');
+    throw new Error('Server misconfiguration: Missing APP_SECRET');
+  }
 
 
   const expectedSignature = `sha256=${crypto.createHmac('sha256', APP_SECRET).update(buf).digest('hex')}`;
+  
   const sigBuf = Buffer.from(signature);
   const expectedSigBuf = Buffer.from(expectedSignature);
 
 
   if (sigBuf.length !== expectedSigBuf.length || !crypto.timingSafeEqual(sigBuf, expectedSigBuf)) {
-    console.error(`[WEBHOOK_REJECTED] Signature mismatch.`);
+    console.error(`[WEBHOOK_REJECTED] ❌ Signature mismatch!`);
+    console.error(`   Expected: ${expectedSignature}`);
+    console.error(`   Received: ${signature}`);
     throw new Error('Invalid signature');
   }
+  
+  console.log('[WEBHOOK] ✅ Meta Signature securely verified!');
 };
 
 
@@ -56,12 +70,12 @@ router.get('/webhook', (req: Request, res: Response) => {
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  console.log(`[DEBUG] Env Token: '${verifyToken}'`);
-  console.log(`[DEBUG] URL Token: '${token}'`);
 
   if (mode === 'subscribe' && token === verifyToken) {
+    console.log('[WEBHOOK] ✅ Meta GET verification successful.');
     res.status(200).send(challenge);
   } else {
+    console.log('[WEBHOOK] ❌ Meta GET verification failed. Token mismatch.');
     res.sendStatus(403);
   }
 });
@@ -74,31 +88,48 @@ router.post(
   '/webhook',
   express.raw({ type: 'application/json', verify: verifyMetaSignature }),
   async (req: Request, res: Response) => {
+    // Immediately acknowledge receipt to Meta
     res.sendStatus(200);
-
-
+    
     try {
-      const body = JSON.parse(req.body.toString());
-      if (body.object !== 'whatsapp_business_account') return;
+      const bodyText = req.body.toString();
+      console.log(`[WEBHOOK_BODY] Payload received:`, bodyText.substring(0, 300) + '...');
+      
+      const body = JSON.parse(bodyText);
+      if (body.object !== 'whatsapp_business_account') {
+        console.log(`[WEBHOOK] Ignored non-whatsapp object: ${body.object}`);
+        return;
+      }
 
 
       for (const entry of body.entry || []) {
         for (const change of entry.changes || []) {
           const value = change.value;
+          
+          // Log status updates (read/delivered receipts) so we know Meta is talking to us
+          if (value?.statuses) {
+            console.log(`[WEBHOOK] 📩 Status Update: Message ${value.statuses[0].status} for ${value.statuses[0].recipient_id}`);
+            continue;
+          }
+
+
           if (!value?.messages || value.messages.length === 0) continue;
 
 
           const message = value.messages[0];
           const rawSenderPhone = message.from;
-          const senderPhone = normalizePhone(rawSenderPhone); // 🛡️ Normalized everywhere for Redis & Mongo consistency
+          const senderPhone = normalizePhone(rawSenderPhone);
           const messageId = message.id;
-          enterMessage(messageId); // money code derives its idempotency keys from this
+          enterMessage(messageId);
 
 
           // Anti-Replay Guard
           if (messageId) {
             const isNewMessage = await redisClient.set(`kasapp:msg_seen:${messageId}`, '1', 'EX', 86400, 'NX');
-            if (!isNewMessage) continue;
+            if (!isNewMessage) {
+              console.log(`[WEBHOOK] 🛑 Duplicate message detected & dropped: ${messageId}`);
+              continue;
+            }
           }
 
 
@@ -168,6 +199,7 @@ router.post(
                 );
                 continue;
               } catch (error) {
+                console.error('[WALLET_GEN_ERROR]', error);
                 await WhatsAppService.sendMessage(senderPhone, '❌ Failed to generate your wallet. Please try again later.');
                 continue;
               }
@@ -276,9 +308,7 @@ router.post(
               }
 
 
-              // Distributed Mutex Lock per phone
               const lockKey = `kasapp:tx_lock:${senderPhone}`;
-              // Token based lock: only the holder can release it, and it outlives a slow payment.
               const lockToken = await acquireLock(redisClient as any, lockKey, 180_000);
               if (!lockToken) {
                 await WhatsAppService.sendMessage(senderPhone, '⏳ Processing in progress... Please wait a few seconds before trying again.');
@@ -389,6 +419,7 @@ router.post(
                     : userState.intent === 'BUY_DATA' ? 'data'
                     : userState.intent === 'PAY_ELECTRICITY' ? 'electricity' : 'cable';
 
+
                   const outcome = await payBillFromUser(user, kasCost, {
                     provider: 'VTPASS',
                     kind: billKind,
@@ -399,7 +430,9 @@ router.post(
                     customerPhone: userState.intent === 'PAY_ELECTRICITY' ? senderPhone : formattedPhone,
                   });
 
+
                   await clearUserState(senderPhone);
+
 
                   if (outcome.status === 'REJECTED') {
                     await WhatsAppService.sendMessage(
@@ -479,7 +512,6 @@ router.post(
             }
 
 
-            // 🛡️ Conversational Secret Phrase requests route to /export (which sets AWAITING_EXPORT_PIN)
             if (parsed.intent === 'GET_SECRET_PHRASE') {
               const resultMessage = await ChatbotService.processIncomingMessage(senderPhone, '/export');
               await WhatsAppService.sendMessage(senderPhone, resultMessage);
