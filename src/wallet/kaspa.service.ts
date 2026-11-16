@@ -1,9 +1,20 @@
 import * as bip39 from "bip39";
 import WebSocket from "isomorphic-ws";
+import { createRequire } from "module";
+
+
+// 1. Shim the WebSocket globally FIRST.
 (globalThis as any).WebSocket = WebSocket;
 
 
-import * as kaspa from "kaspa-wasm";
+// 2. Bypass ESM hoisting and CJS wrapping using a dynamic require.
+// This guarantees kaspa-wasm initializes AFTER the WebSocket is shimmed.
+// @ts-ignore - Bypass TS compiler errors for dynamic import of CJS module in ESM context.
+const customRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
+const rawKaspa = customRequire("kaspa-wasm");
+const kaspa: typeof import("kaspa-wasm") = rawKaspa.default || rawKaspa;
+
+
 import { encryptMnemonic, decryptMnemonic } from "../utils/crypto.utils";
 import { kasToSompi, MAX_SOMPI } from "../utils/sompi";
 import { NetworkMismatchError, addressMatchesNetwork, addressPrefixFor, networksMatch } from "../utils/network";
@@ -24,7 +35,7 @@ const DEFAULT_PRIORITY_FEE = BigInt(process.env.KASPA_PRIORITY_FEE_SOMPI || "100
  * same network the app is configured for. A mismatch throws NetworkMismatchError, so no balance
  * is read and no transaction is built against the wrong network.
  */
-async function connectRpc(options: { requireSynced?: boolean } = {}): Promise<kaspa.RpcClient> {
+async function connectRpc(options: { requireSynced?: boolean } = {}): Promise<any> {
   const url = process.env.KASPA_RPC_URL || "ws://127.0.0.1:16110";
   
   // kaspa-wasm v2 signature: constructor(url: string, encoding: number, network_type?: string)
@@ -104,7 +115,6 @@ function collectInputs(pending: any): string[] {
 
 function outputAddress(output: any): string | undefined {
   // Rusty Kaspa v2 always provides the string address natively in verboseData
-  // We no longer need the broken Address.fromScriptPublicKey fallback
   const verbose = output?.verboseData?.scriptPublicKeyAddress;
   if (verbose) return String(verbose);
   return undefined;
@@ -120,7 +130,7 @@ function outputsPay(outputs: any[] | undefined, toAddress: string, amountSompi: 
 }
 
 
-async function fetchUtxos(rpc: kaspa.RpcClient, address: string): Promise<any[]> {
+async function fetchUtxos(rpc: any, address: string): Promise<any[]> {
   const { entries } = await rpc.getUtxosByAddresses({ addresses: [address] });
   return (entries as any[]) || [];
 }
@@ -219,7 +229,7 @@ export const KaspaService = {
     }
 
 
-    let rpc: kaspa.RpcClient;
+    let rpc: any;
     try {
       rpc = await connectRpc({ requireSynced: true });
     } catch (err) {
@@ -244,9 +254,9 @@ export const KaspaService = {
       }
 
 
-      let generator: kaspa.Generator;
+      let generator: any;
       try {
-        // Cast args to `any` to bypass the broken kaspa-wasm GeneratorSettings TS mapping
+        // Cast args to any to bypass strict TS matching errors on the new bindings
         const genArgs: any = {
           entries,
           outputs: [{ address: toAddress, amount: amountSompi }],
@@ -326,7 +336,7 @@ export const KaspaService = {
 
 
   checkPayment: async (txid: string, toAddress: string, amountSompi: bigint): Promise<PaymentCheck> => {
-    let rpc: kaspa.RpcClient;
+    let rpc: any;
     try {
       rpc = await connectRpc();
     } catch {
@@ -369,7 +379,7 @@ export const KaspaService = {
 
   checkInputs: async (fromAddress: string, inputs: string[]): Promise<InputsCheck> => {
     if (!inputs.length) return "UNKNOWN";
-    let rpc: kaspa.RpcClient;
+    let rpc: any;
     try {
       rpc = await connectRpc();
     } catch {
@@ -467,10 +477,7 @@ export const KaspaService = {
 
 function derivePrivateKey(mnemonic: string): any {
   const seed = bip39.mnemonicToSeedSync(mnemonic).toString("hex");
-  // Cast XPrv to any to bypass TS compilation failures. 
   const xprv: any = new kaspa.XPrv(seed).derivePath(DERIVATION_PATH);
-  
-  // Provide runtime fallbacks since the WASM method name changed
   return xprv.privateKey || (typeof xprv.toPrivateKey === 'function' ? xprv.toPrivateKey() : xprv);
 }
 
@@ -480,7 +487,5 @@ function deriveAddress(mnemonic: string): string {
   const keypair = privateKey.toKeypair();
   return keypair.toAddress(NETWORK).toString();
 }
-
-
 
 
