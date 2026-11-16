@@ -37,6 +37,7 @@ async function settleBillWithKas(
   return `❌ *Payment failed.* ${outcome.message || ''}`.trim();
 }
 
+
 export const ChatbotService = {
   async processIncomingMessage(fromPhone: string, rawMessageText: string): Promise<string> {
     try {
@@ -68,11 +69,13 @@ export const ChatbotService = {
       user.phone = internationalFormat;
       await user.save();
     }
+
+
     // 🛡️ LEDGER SYNC FIX: Reconcile MongoDB with the Kaspa Mainnet
     // We only sync on financial commands to save RPC calls
     if (user && user.walletAddress) {
       const isFinancialCommand = ['/balance', 'balance', 'bal', '/send', '/voucher', '/airtime', '/data', '/electricity', '/cable', '/water', '/auto'].some(cmd => msg.startsWith(cmd));
-      
+     
       if (isFinancialCommand) {
         try {
           // Skip while money is in flight: the chain still shows funds that are already committed.
@@ -269,9 +272,26 @@ export const ChatbotService = {
     }
 
 
+    // ==========================================
+    // 🛡️ RE-WIRED: ON-CHAIN BALANCE CHECK
+    // ==========================================
     if (msg === '/balance') {
-      if (!user) return "Looks like you don't have a wallet yet — just say Hi and I'll set one up for you.";
-      return "Here's where you stand:\n" + formatBalance(user) + ' KAS';
+      if (!user || !user.walletAddress) return "Looks like you don't have a wallet yet — just say Hi and I'll set one up for you.";
+      
+      try {
+        const onChainSompi = await KaspaService.getBalanceSompi(user.walletAddress);
+        const liveBalance = Number(onChainSompi) / 100000000;
+        
+        // Update DB silently just to keep records somewhat close, but never trust it
+        await UserModel.updateOne({ _id: user._id }, { $set: balanceFields(onChainSompi) });
+        
+        return `💰 *Live Wallet Balance*\n\nAddress: \`${user.walletAddress}\`\n\nBalance: *${liveBalance} KAS*`;
+      } catch (error) {
+        console.error('[ON-CHAIN BALANCE ERROR]', error);
+        // Fallback to DB *only* if the RPC node goes down
+        const cachedBalance = formatBalance(user);
+        return `⚠️ *Network Unavailable*\nI couldn't reach the Kaspa ledger. Your last known balance was *${cachedBalance} KAS*.`;
+      }
     }
 
 
@@ -333,14 +353,28 @@ export const ChatbotService = {
       let amountSompi: bigint;
       try { amountSompi = kasToSompi(amountStr); } catch { return 'Please enter a valid KAS amount.'; }
       const amount = Number(amountSompi) / 100000000;
-      if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
-      if (userBalanceSompi(user) < amountSompi) return `Insufficient balance. You have *${formatBalance(user)} KAS*.`;
+      if (!user || !user.walletAddress) return "You'll need a wallet first — just say Hi and I'll get you set up.";
+      
+      // ==========================================
+      // 🛡️ RE-WIRED: ON-CHAIN SEND BALANCE CHECK
+      // ==========================================
+      let liveSompi: bigint;
+      try {
+        liveSompi = await KaspaService.getBalanceSompi(user.walletAddress);
+      } catch (error) {
+        return `⚠️ I couldn't reach the Kaspa ledger to verify your funds. Please try again in a minute.`;
+      }
+      
+      if (liveSompi < amountSompi) {
+        return `❌ Insufficient funds. You have *${Number(liveSompi) / 100000000} KAS*, but tried to send *${amount} KAS*.`;
+      }
 
 
       const isChainAddress = targetRecipient.toLowerCase().startsWith('kaspa:') || targetRecipient.toLowerCase().startsWith('kaspatest:');
       let toAddress = targetRecipient;
       let recipientUser: any = null;
       let normalizedTargetPhone = '';
+
 
       if (!isChainAddress) {
         normalizedTargetPhone = normalizePhone(targetRecipient);
@@ -350,6 +384,7 @@ export const ChatbotService = {
         if (!recipientUser) return '❌ Could not prepare the recipient wallet. Please try again.';
         toAddress = recipientUser.walletAddress!;
       }
+
 
       const outcome = await sendFromUser(user, toAddress, formatKas(amountSompi, 8));
       if (outcome.status === 'REJECTED') {
@@ -361,25 +396,31 @@ export const ChatbotService = {
         return '⏳ *Transfer submitted.* We are confirming it on the network. You will not be charged twice, and if it did not go through your KAS is returned automatically.';
       }
 
+
       const txId = outcome.op.txids[outcome.op.txids.length - 1];
       const after = (await UserModel.findById(user._id)) || user;
+
 
       if (isChainAddress) {
         return `✅ *On-Chain Transfer Successful!*\n\n• *Sent:* ${formatKas(amountSompi)} KAS\n• *Recipient:* \`${targetRecipient.slice(0, 12)}...${targetRecipient.slice(-6)}\`\n• *TXID:* \`${txId}\`\n\n💳 *New Balance:* ${formatBalance(after)} KAS`;
       }
+
 
       // The recipient's wallet now holds the funds on chain. Credit their ledger once for this payout.
       const { ledger } = await import('./ledger.mongo');
       await ledger.credit(String(recipientUser._id), amountSompi, `recv:${outcome.op.key}`);
       const recipientAfter = (await UserModel.findById(recipientUser._id)) || recipientUser;
 
+
       const recipientNotificationText = `🎉 *You received KAS!*\n\n• *Amount:* ${formatKas(amountSompi)} KAS\n• *From:* ${senderPhone}\n• *New Balance:* ${formatBalance(recipientAfter)} KAS\n\nType *balance* to view your total wallet funds or *help* to spend it!`;
+
 
       try {
         await sendWhatsAppNotification(normalizedTargetPhone, recipientNotificationText);
       } catch (err) {
         console.error('[RECIPIENT_NOTIFICATION_ERROR]', err);
       }
+
 
       return `✅ *Transfer Successful!*\n\nSent *${formatKas(amountSompi)} KAS* to *${normalizedTargetPhone}*.\n• *TXID:* \`${txId}\`\nYour new balance is *${formatBalance(after)} KAS*.`;
     }
@@ -392,13 +433,15 @@ export const ChatbotService = {
 
       let voucherSompi: bigint;
       try { voucherSompi = kasToSompi(parts[1]); } catch { return 'Please enter a valid amount.'; }
-      if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
+      if (!user || !user.walletAddress) return "You'll need a wallet first — just say Hi and I'll get you set up.";
       if (userBalanceSompi(user) < voucherSompi) return `❌ Insufficient balance. You have ${formatBalance(user)} KAS.`;
+
 
       const created = await createVoucher(user, formatKas(voucherSompi, 8));
       if (created.status === 'INSUFFICIENT') return `❌ Insufficient balance.`;
       if (created.status === 'FAILED') return `❌ Voucher creation failed. Your KAS was not deducted. ${created.message || ''}`.trim();
       if (created.status === 'PENDING') return '⏳ *Voucher in progress.* We are confirming the funding on the network. Your code will be sent as soon as it is ready, and you will not be charged twice.';
+
 
       return `✅ *Recharge Card Created*\n\nCode: *${created.code}*\nAmount: ${formatKas(voucherSompi)} KAS\n\nThe funds are held by KasApp until the card is redeemed.`;
     }
@@ -409,17 +452,20 @@ export const ChatbotService = {
       if (parts.length < 2) return 'Just need the code!\nUsage: redeem [code]\nExample: `redeem KASP-3D8A-AB8B-846F-2774`';
      
       let currentUser = user;
-      if (!currentUser) {
+      if (!currentUser || !currentUser.walletAddress) {
         currentUser = (await provisionUser(senderPhone)) || (await UserModel.findOne({ phone: senderPhone }));
         if (!currentUser) return '❌ Could not prepare your wallet. Please try again.';
       }
 
+
       const code = normalizeVoucherCode(parts[1]);
       const redeemed = await redeemOnChain(code, currentUser);
+
 
       if (redeemed.status === 'INVALID') return "❌ *Invalid or Already Used Voucher Code.* Please check the code and try again.";
       if (redeemed.status === 'FAILED') return `❌ Redemption failed: ${redeemed.message || 'the network did not accept it'}. Your voucher is still valid, please try again.`;
       if (redeemed.status === 'PENDING') return '⏳ *Redemption in progress.* We are confirming it on the network. The funds will arrive in your wallet shortly and the voucher cannot be used twice.';
+
 
       const refreshed = (await UserModel.findById(currentUser._id)) || currentUser;
       const finalTxID = redeemed.op!.txids[redeemed.op!.txids.length - 1];
@@ -436,7 +482,7 @@ export const ChatbotService = {
     if (msg.startsWith('/airtime')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 4) return 'I need a few more details for that.\nUsage: airtime [network] [phone] [amount in naira]\nExample: airtime MTN 08012345678 1000';
-      if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
+      if (!user || !user.walletAddress) return "You'll need a wallet first — just say Hi and I'll get you set up.";
       const network = parts[1].toUpperCase();
       const targetPhone = normalizePhone(parts[2]);
       const amountNaira = parseFloat(parts[3]);
@@ -450,7 +496,7 @@ export const ChatbotService = {
     if (msg.startsWith('/data')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 4) return 'I need a few more details for that.\nUsage: data [network] [phone] [amount in naira]\nExample: `data MTN 08012345678 1000`';
-      if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
+      if (!user || !user.walletAddress) return "You'll need a wallet first — just say Hi and I'll get you set up.";
       const network = parts[1].toUpperCase();
       const targetPhone = normalizePhone(parts[2]);
       const amountNaira = parseFloat(parts[3]);
@@ -464,7 +510,7 @@ export const ChatbotService = {
     if (msg.startsWith('/convert')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 3) return 'Usage: convert [network] [airtime_naira_amount]\nExample: `convert MTN 1000`';
-      if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
+      if (!user || !user.walletAddress) return "You'll need a wallet first — just say Hi and I'll get you set up.";
       const network = parts[1].toUpperCase();
       const amountNaira = parseFloat(parts[2]);
       if (isNaN(amountNaira) || amountNaira <= 0) return "Invalid airtime amount.";
@@ -476,7 +522,7 @@ export const ChatbotService = {
     if (msg.startsWith('/electricity')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 4) return 'I need a few more details for that.\nUsage: electricity [provider] [meter number] [amount in naira]';
-      if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
+      if (!user || !user.walletAddress) return "You'll need a wallet first — just say Hi and I'll get you set up.";
       const provider = parts[1].toUpperCase();
       const meterNumber = parts[2];
       const amountNaira = parseFloat(parts[3]);
@@ -490,7 +536,7 @@ export const ChatbotService = {
     if (msg.startsWith('/water')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 4) return 'I need a few more details for that.\nUsage: water [provider] [account number] [amount in naira]';
-      if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
+      if (!user || !user.walletAddress) return "You'll need a wallet first — just say Hi and I'll get you set up.";
       const provider = parts[1].toUpperCase();
       const accountNumber = parts[2];
       const amountNaira = parseFloat(parts[3]);
@@ -504,7 +550,7 @@ export const ChatbotService = {
     if (msg.startsWith('/cable')) {
       const parts = rawMsg.split(' ');
       if (parts.length < 4) return 'I need a few more details for that.\nUsage: cable [provider] [smartcard number] [amount in naira]';
-      if (!user) return "You'll need a wallet first — just say Hi and I'll get you set up.";
+      if (!user || !user.walletAddress) return "You'll need a wallet first — just say Hi and I'll get you set up.";
       const provider = parts[1].toUpperCase();
       const smartcardNumber = parts[2];
       const amountNaira = parseFloat(parts[3]);
