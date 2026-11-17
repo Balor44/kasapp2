@@ -4,3 +4,4 @@ dist/
 public/
 vouchers-*.csv
 *.patch
+rusty-kaspa/

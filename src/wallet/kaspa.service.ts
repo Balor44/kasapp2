@@ -8,8 +8,8 @@ import WebSocket from "isomorphic-ws";
 
 // 2. Use standard CommonJS require to bypass hoisting.
 // This executes after the shim and completely avoids the import.meta CI crash.
-const rawKaspa = require("kaspa-wasm");
-const kaspa: typeof import("kaspa-wasm") = rawKaspa.default || rawKaspa;
+const rawKaspa = require("../../vendor/kaspa/kaspa");
+const kaspa: typeof import("../../vendor/kaspa/kaspa") = rawKaspa.default || rawKaspa;
 
 
 import { encryptMnemonic, decryptMnemonic } from "../utils/crypto.utils";
@@ -18,6 +18,7 @@ import { NetworkMismatchError, addressMatchesNetwork, addressPrefixFor, networks
 import { NotSubmittedError, UnknownSubmitError } from "../utils/chainErrors";
 
 
+// Must be "mainnet" or "testnet-10" (other testnets may have no public nodes).
 const NETWORK = process.env.KASPA_NETWORK || "mainnet";
 const DERIVATION_PATH = "m/44'/111111'/0'/0/0";
 
@@ -28,20 +29,30 @@ const DEFAULT_PRIORITY_FEE = BigInt(process.env.KASPA_PRIORITY_FEE_SOMPI || "100
 
 
 /**
- * Opens an RPC connection using strict positional arguments for compatibility
- * with older kaspa-wasm SDK versions. Uses secure WSS to prevent Railway disconnects.
+ * Opens a wRPC connection to a Kaspa node.
+ *
+ * - If KASPA_RPC_URL is set, it must point at a real wRPC node (e.g. wss://host:port).
+ *   NOTE: https://api.kaspa.org is the REST API, NOT a wRPC node, and will not work here.
+ * - Otherwise the public-node Resolver picks a live node from the Public Node Network
+ *   (load-balanced, with failover). A fresh node is looked up on every reconnect.
  */
 async function connectRpc(options: { requireSynced?: boolean } = {}): Promise<any> {
-  // Force the secure WebSocket (wss://) to the official Kaspa API
-  const url = process.env.KASPA_RPC_URL || "wss://api.kaspa.org";
+  const customUrl = process.env.KASPA_RPC_URL;
 
 
-  // Strict positional arguments: (url, encoding, network_type)
-  // Encoding 1 = Borsh
-  const rpc = new kaspa.RpcClient(url, 1, NETWORK);
+  const config: any = customUrl
+    ? { url: customUrl, encoding: kaspa.Encoding.Borsh, networkId: NETWORK }
+    : { resolver: new kaspa.Resolver(), encoding: kaspa.Encoding.Borsh, networkId: NETWORK };
 
 
-  await rpc.connect({});
+  const rpc = new kaspa.RpcClient(config);
+
+
+  await rpc.connect({
+    blockAsyncConnect: true,
+    timeoutDuration: 10000,
+    retryInterval: 2000,
+  } as any);
 
 
   try {
@@ -52,6 +63,12 @@ async function connectRpc(options: { requireSynced?: boolean } = {}): Promise<an
       throw new NetworkMismatchError(
         `Network mismatch: the app is configured for "${NETWORK}" but the connected node reports "${info.networkId}". Refusing to continue.`
       );
+    }
+
+
+    // Balance and UTXO-by-address lookups require the node to run with --utxoindex.
+    if (info.hasUtxoIndex === false) {
+      throw new Error("The connected Kaspa node has no UTXO index, so address balances are unavailable.");
     }
 
 
@@ -179,8 +196,9 @@ export const KaspaService = {
   getBalanceSompi: async (address: string): Promise<bigint> => {
     const rpc = await connectRpc();
     try {
-      const entries = await fetchUtxos(rpc, address);
-      return entries.reduce((sum: bigint, utxo: any) => sum + amountOf(utxo), BigInt(0));
+      // Lighter than summing every UTXO: the node returns the total directly.
+      const { balance } = await rpc.getBalanceByAddress({ address });
+      return BigInt(balance ?? 0);
     } finally {
       try {
         await rpc.disconnect();
@@ -487,5 +505,7 @@ function deriveAddress(mnemonic: string): string {
   const keypair = privateKey.toKeypair();
   return keypair.toAddress(NETWORK).toString();
 }
+
+
 
 
